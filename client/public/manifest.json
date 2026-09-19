@@ -1,0 +1,21 @@
+{
+  "name": "QuickKaam - On-demand Home Services",
+  "short_name": "QuickKaam",
+  "description": "Book electricians, plumbers, majdoors, mechanics and AC technicians in ~20 minutes",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#f59e0b",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

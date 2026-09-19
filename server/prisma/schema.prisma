@@ -1,0 +1,242 @@
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [postgis]
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+enum Role {
+  CUSTOMER
+  WORKER
+  ADMIN
+}
+
+enum KycStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum BookingStatus {
+  SEARCHING
+  ASSIGNED
+  EN_ROUTE
+  ARRIVED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id            String         @id @default(uuid())
+  phone         String         @unique
+  name          String?
+  role          Role           @default(CUSTOMER)
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  workerProfile WorkerProfile?
+  bookings      Booking[]      @relation("CustomerBookings")
+  ratingsGiven  Rating[]       @relation("CustomerRatings")
+  complaints    Complaint[]
+
+  @@map("users")
+}
+
+model WorkerProfile {
+  id               String                                  @id @default(uuid())
+  userId           String                                  @unique @map("user_id")
+  user             User                                    @relation(fields: [userId], references: [id])
+  skills           String[]
+  photoUrl         String?                                 @map("photo_url")
+  aadhaarNumber    String?                                 @map("aadhaar_number")
+  aadhaarDocUrl    String?                                 @map("aadhaar_doc_url")
+  kycStatus        KycStatus                               @default(PENDING) @map("kyc_status")
+  isOnline         Boolean                                 @default(false) @map("is_online")
+  isBusy           Boolean                                 @default(false) @map("is_busy")
+  currentLocation  Unsupported("geography(Point, 4326)")?  @map("current_location")
+  rating           Float                                   @default(5.0)
+  totalRatings     Int                                     @default(0) @map("total_ratings")
+  vehicleType      String?                                 @map("vehicle_type")
+  services         WorkerService[]
+  assignedBookings Booking[]                               @relation("WorkerBookings")
+  ratingsReceived  Rating[]                                @relation("WorkerRatings")
+  createdAt        DateTime                                @default(now()) @map("created_at")
+  updatedAt        DateTime                                @updatedAt @map("updated_at")
+
+  @@map("worker_profiles")
+}
+
+model WorkerService {
+  id        String        @id @default(uuid())
+  workerId  String        @map("worker_id")
+  worker    WorkerProfile @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  serviceId String        @map("service_id")
+  service   Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  @@unique([workerId, serviceId])
+  @@map("worker_services")
+}
+
+model Service {
+  id          String          @id @default(uuid())
+  slug        String          @unique
+  nameEn      String          @map("name_en")
+  nameHi      String          @map("name_hi")
+  icon        String
+  visitCharge Float           @default(99.0) @map("visit_charge")
+  items       ServiceItem[]
+  workers     WorkerService[]
+  bookings    Booking[]
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  @@map("services")
+}
+
+model ServiceItem {
+  id           String        @id @default(uuid())
+  serviceId    String        @map("service_id")
+  service      Service       @relation(fields: [serviceId], references: [id])
+  nameEn       String        @map("name_en")
+  nameHi       String        @map("name_hi")
+  unit         String?
+  minPrice     Float         @map("min_price")
+  maxPrice     Float         @map("max_price")
+  bookingItems BookingItem[]
+
+  @@map("service_items")
+}
+
+model Booking {
+  id              String         @id @default(uuid())
+  customerId      String         @map("customer_id")
+  customer        User           @relation("CustomerBookings", fields: [customerId], references: [id])
+  workerId        String?        @map("worker_id")
+  worker          WorkerProfile? @relation("WorkerBookings", fields: [workerId], references: [id])
+  serviceId       String         @map("service_id")
+  service         Service        @relation(fields: [serviceId], references: [id])
+  status          BookingStatus  @default(SEARCHING)
+  
+  // Location
+  pickupLat       Float          @map("pickup_lat")
+  pickupLng       Float          @map("pickup_lng")
+  pickupAddress   String         @map("pickup_address")
+  
+  // OTP Verification
+  startOtp        String         @map("start_otp")
+  
+  // Pricing Breakdown
+  baseVisitCharge Float          @default(99.0) @map("base_visit_charge")
+  serviceTotal    Float          @default(0.0) @map("service_total")
+  partsTotal      Float          @default(0.0) @map("parts_total")
+  nightSurgeRate  Float          @default(0.0) @map("night_surge_rate")
+  rushSurgeRate   Float          @default(0.0) @map("rush_surge_rate")
+  cancelFee       Float          @default(0.0) @map("cancel_fee")
+  platformFee     Float          @default(0.0) @map("platform_fee")
+  totalAmount     Float          @default(0.0) @map("total_amount")
+
+  // Timestamps
+  assignedAt      DateTime?      @map("assigned_at")
+  arrivedAt       DateTime?      @map("arrived_at")
+  startedAt       DateTime?      @map("started_at")
+  completedAt     DateTime?      @map("completed_at")
+  cancelledAt     DateTime?      @map("cancelled_at")
+  cancelledBy     String?        @map("cancelled_by")
+  cancelReason    String?        @map("cancel_reason")
+
+  items           BookingItem[]
+  payment         Payment?
+  rating          Rating?
+  complaints      Complaint[]
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  @@map("bookings")
+}
+
+model BookingItem {
+  id             String         @id @default(uuid())
+  bookingId      String         @map("booking_id")
+  booking        Booking        @relation(fields: [bookingId], references: [id])
+  serviceItemId  String?        @map("service_item_id")
+  serviceItem    ServiceItem?   @relation(fields: [serviceItemId], references: [id])
+  description    String
+  quantity       Int            @default(1)
+  unitPrice      Float          @map("unit_price")
+  isPart         Boolean        @default(false) @map("is_part")
+  approvalStatus ApprovalStatus @default(PENDING) @map("approval_status")
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  @@map("booking_items")
+}
+
+model Payment {
+  id             String        @id @default(uuid())
+  bookingId      String        @unique @map("booking_id")
+  booking        Booking       @relation(fields: [bookingId], references: [id])
+  method         PaymentMethod @default(CASH)
+  amount         Float
+  status         PaymentStatus @default(PENDING)
+  transactionRef String?       @map("transaction_ref")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  @@map("payments")
+}
+
+model Rating {
+  id         String        @id @default(uuid())
+  bookingId  String        @unique @map("booking_id")
+  booking    Booking       @relation(fields: [bookingId], references: [id])
+  customerId String        @map("customer_id")
+  customer   User          @relation("CustomerRatings", fields: [customerId], references: [id])
+  workerId   String        @map("worker_id")
+  worker     WorkerProfile @relation("WorkerRatings", fields: [workerId], references: [id])
+  stars      Int
+  comment    String?
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  @@map("ratings")
+}
+
+model Complaint {
+  id        String   @id @default(uuid())
+  bookingId String   @map("booking_id")
+  booking   Booking  @relation(fields: [bookingId], references: [id])
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id])
+  issue     String
+  status    String   @default("OPEN")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("complaints")
+}
+
+model AdminSetting {
+  key         String   @id
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("admin_settings")
+}
