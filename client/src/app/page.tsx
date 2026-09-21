@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { LucideIcon } from 'lucide-react';
@@ -29,6 +30,12 @@ const serviceMeta: Record<string, { Icon: LucideIcon; description: string; hindi
   mechanic: { Icon: Bike, description: 'Puncture, battery & roadside help', hindi: 'पंचर और रोडसाइड सहायता' },
 };
 const rotatingSearches = ['Plumber', 'Electrician', 'AC repair', 'Mechanic', 'Home helper'];
+const heroStories = [
+  { slug: 'electrician', image: '/images/hero/electrician.webp', Icon: Zap, titleEn: 'Electrician at work', titleHi: 'काम पर इलेक्ट्रीशियन', copyEn: 'Safe wiring and switch repairs', copyHi: 'सुरक्षित वायरिंग और स्विच मरम्मत' },
+  { slug: 'plumber', image: '/images/hero/plumber.webp', Icon: Wrench, titleEn: 'Plumber at work', titleHi: 'काम पर प्लंबर', copyEn: 'Leaks and fittings fixed cleanly', copyHi: 'लीकेज और फिटिंग की साफ़ मरम्मत' },
+  { slug: 'ac', image: '/images/hero/ac-technician.webp', Icon: AirVent, titleEn: 'AC expert at work', titleHi: 'काम पर AC एक्सपर्ट', copyEn: 'Careful service for better cooling', copyHi: 'बेहतर कूलिंग के लिए सावधानी से सर्विस' },
+  { slug: 'mechanic', image: '/images/hero/mechanic.webp', Icon: Bike, titleEn: 'Mechanic at work', titleHi: 'काम पर मैकेनिक', copyEn: 'Roadside support when you need it', copyHi: 'ज़रूरत के समय रोडसाइड सहायता' },
+];
 const HOME_LOCATION_KEY = 'servzest_home_location';
 
 export default function HomePage() {
@@ -51,6 +58,8 @@ export default function HomePage() {
   const [locationBusy, setLocationBusy] = useState(false);
   const [locationMessage, setLocationMessage] = useState('');
   const [showTop, setShowTop] = useState(false);
+  const [heroIndex, setHeroIndex] = useState(0);
+  const [heroPaused, setHeroPaused] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -80,6 +89,11 @@ export default function HomePage() {
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => { window.clearInterval(timer); window.removeEventListener('scroll', onScroll); };
   }, []);
+  useEffect(() => {
+    if (heroPaused || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const timer = window.setInterval(() => setHeroIndex(index => (index + 1) % heroStories.length), 5200);
+    return () => window.clearInterval(timer);
+  }, [heroPaused]);
   useEffect(() => {
     if (authLoading || user?.role !== 'CUSTOMER') return;
     api.getMyBookings().then(result => { if (result.success) setBookings(result.bookings || []); }).catch(() => undefined);
@@ -190,7 +204,13 @@ export default function HomePage() {
 
     <section className="rapid-hero">
       <div className="rapid-hero-copy"><span className="rapid-kicker"><Sparkles size={15} /> {text('HOME HELP, WITHOUT THE WAIT', 'घर की मदद, बिना इंतज़ार')}</span><h1>{text('Your home,', 'आपका घर,')}<br/><em>{text('sorted in minutes.', 'मिनटों में तैयार।')}</em></h1><p>{text('Verified local professionals for repairs, maintenance and everyday help—with clear pricing and live tracking.', 'मरम्मत और रोज़मर्रा की मदद के लिए सत्यापित नज़दीकी प्रोफेशनल—स्पष्ट कीमत और लाइव ट्रैकिंग के साथ।')}</p><div className="rapid-proof"><span><ShieldCheck size={16} />{text('Verified partners', 'सत्यापित पार्टनर')}</span><span><Clock3 size={16} />{text('20-min target', '20 मिनट लक्ष्य')}</span><span><BadgeCheck size={16} />{text('Approval-first billing', 'पहले मंज़ूरी')}</span></div></div>
-      <div className="rapid-hero-visual" aria-label="Fast home services"><div className="rapid-orbit"><div className="rapid-orbit-core"><strong>20</strong><span>MIN</span><small>{text('TARGET', 'लक्ष्य')}</small></div>{[Zap, Wrench, AirVent, Bike].map((Icon, index) => <span key={index} className={`rapid-orbit-item rapid-orbit-item-${index + 1}`}><Icon size={22} /></span>)}</div><div className="rapid-visual-card rapid-visual-card-top"><span className="online-dot" />{text('Nearby partners online', 'नज़दीकी पार्टनर ऑनलाइन')}</div><div className="rapid-visual-card rapid-visual-card-bottom"><Star size={16} fill="currentColor" />{text('Rated after every job', 'हर काम के बाद रेटिंग')}</div></div>
+      <div className="rapid-hero-visual rapid-story-carousel" role="region" aria-roledescription="carousel" aria-label={text('Professionals at work', 'काम करते प्रोफेशनल')} onMouseEnter={() => setHeroPaused(true)} onMouseLeave={() => setHeroPaused(false)} onFocusCapture={() => setHeroPaused(true)} onBlurCapture={() => setHeroPaused(false)}>
+        <div className="rapid-story-media">{heroStories.map((story, index) => <Image key={story.slug} src={story.image} alt={index === heroIndex ? (language === 'hi' ? story.titleHi : story.titleEn) : ''} aria-hidden={index !== heroIndex} fill priority={index === 0} sizes="(max-width: 767px) 100vw, 44vw" className={index === heroIndex ? 'is-active' : ''} />)}</div>
+        <div className="rapid-story-shade" />
+        <div className="rapid-story-status"><span className="online-dot" />{text('Verified professional', 'सत्यापित प्रोफेशनल')}<b>~20 min</b></div>
+        {heroStories.map((story, index) => { const Icon = story.Icon; return <div key={story.slug} className={`rapid-story-copy ${index === heroIndex ? 'is-active' : ''}`} aria-hidden={index !== heroIndex}><span><Icon size={19} /></span><div><small>{text('SERVZEST AT WORK', 'SERVZEST काम पर')}</small><strong>{language === 'hi' ? story.titleHi : story.titleEn}</strong><p>{language === 'hi' ? story.copyHi : story.copyEn}</p></div><Link href={`/book/${story.slug}`} tabIndex={index === heroIndex ? 0 : -1} aria-label={text(`Book ${story.titleEn}`, `${story.titleHi} बुक करें`)}><ArrowRight size={18} /></Link></div>; })}
+        <div className="rapid-story-dots" aria-label={text('Choose a service story', 'सेवा की तस्वीर चुनें')}>{heroStories.map((story, index) => <button type="button" key={story.slug} className={index === heroIndex ? 'is-active' : ''} onClick={() => setHeroIndex(index)} aria-label={text(`Show ${story.titleEn}`, `${story.titleHi} दिखाएँ`)} aria-current={index === heroIndex ? 'true' : undefined} />)}</div>
+      </div>
     </section>
 
     <section className="rapid-smart-search" aria-label="Search services"><Search size={22} /><input aria-label="Search services" value={query} onChange={event => { setQuery(event.target.value); setSearchMessage(''); }} onKeyDown={event => { if (event.key === 'Enter') submitSearch(); }} placeholder={text(`Search “${rotatingSearches[searchIndex]}”`, `“${rotatingSearches[searchIndex]}” खोजें`)} /><button type="button" onClick={startVoiceSearch} className={listening ? 'is-listening' : ''} aria-label="Search by voice"><Mic size={21} /></button>{query && <button type="button" onClick={() => setQuery('')} aria-label="Clear search"><X size={20} /></button>}</section>
