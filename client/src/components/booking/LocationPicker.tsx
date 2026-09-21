@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { Navigation } from 'lucide-react';
 import { LeafletMap } from '../map/LeafletMapDynamic';
 type Location = { lat: number; lng: number; address: string; hasPin: boolean; confirmed: boolean };
 type Suggestion = { label: string; lat: number; lng: number };
@@ -59,8 +60,8 @@ export function LocationPicker({ value, onChange, required }: { value: Location;
       else fail(error);
     }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
   };
-  return <section className="bg-white border border-slate-200 rounded-3xl p-5 space-y-4 shadow-sm">
-    <div className="flex justify-between items-center gap-3"><h2 className="font-bold">Select service location</h2><button type="button" disabled={gps} onClick={locate} className="text-sm text-brand-700 font-bold disabled:opacity-50">{gps ? 'Locating…' : 'Use my location'}</button></div>
+  return <section className="location-picker-card bg-white border border-slate-200 rounded-3xl p-5 space-y-4 shadow-sm">
+    <div className="location-picker-head flex justify-between items-center gap-3"><div><span className="booking-mini-label">STEP 3 · WHERE</span><h2 className="font-bold">Confirm the service location</h2></div><button type="button" disabled={gps} onClick={locate} className="text-sm text-brand-700 font-bold disabled:opacity-50"><Navigation className="inline-block w-4 h-4 mr-1.5" />{gps ? 'Locating…' : 'Use my location'}</button></div>
     <div className="relative">
       <label htmlFor="location-search" className="block text-sm font-bold mb-2">Search address, area or landmark</label>
       <div className="flex gap-2 items-start"><input id="location-search" role="combobox" aria-autocomplete="list" aria-expanded={open && results.length > 0} aria-controls="address-suggestions" aria-activedescendant={active >= 0 ? `address-option-${active}` : undefined} autoComplete="off" value={query} maxLength={250} placeholder="e.g. Sector 62 Noida" onFocus={() => setOpen(true)} onChange={e => { setQuery(e.target.value); setOpen(true); setMessage(''); onChange({ confirmed: false }); }} onKeyDown={e => {
@@ -76,7 +77,7 @@ export function LocationPicker({ value, onChange, required }: { value: Location;
       <p className="text-xs text-slate-400 mt-2">Address search: Photon / OpenStreetMap</p>
     </div>
     <p className="text-xs text-slate-500">Choose a suggestion, tap the map, drag the pin, or move the map and use its centre.</p>
-    <LeafletMap center={[value.lat, value.lng]} customerLocation={[value.lat, value.lng]} isDraggable onLocationChange={pickPin} className="h-72 sm:h-80 w-full rounded-2xl overflow-hidden border border-slate-200 relative z-0" />
+    <LeafletMap center={[value.lat, value.lng]} customerLocation={[value.lat, value.lng]} isDraggable onLocationChange={pickPin} className="booking-location-map h-72 sm:h-80 w-full rounded-2xl overflow-hidden border border-slate-200 relative z-0" />
     <p role="status" className={`text-sm ${value.hasPin ? 'text-brand-700' : 'text-slate-600'}`}>{message || (value.hasPin ? 'Location selected.' : 'Please select your service location.')}</p>
     {value.hasPin && <p className="text-xs text-slate-500">Selected pin: {value.lat.toFixed(5)}, {value.lng.toFixed(5)}</p>}
     <label className="block text-sm font-bold">Full address / house / flat details<textarea required={required} minLength={8} maxLength={500} rows={3} value={value.address} onChange={e => { selection.current++; onChange({ address: e.target.value, confirmed: false }); }} placeholder="Select a location above, then add house/flat number and landmark" className="mt-2 w-full border rounded-xl p-3 font-normal" /></label>

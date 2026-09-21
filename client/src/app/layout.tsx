@@ -32,7 +32,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" data-scroll-behavior="smooth">
       <body className="bg-[var(--surface-ground)] antialiased text-slate-900 min-h-screen flex flex-col">
         <FeedbackProvider>
           <LanguageProvider>
