@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { LucideIcon } from 'lucide-react';
-import { AirVent, ArrowRight, ArrowUp, BadgeCheck, Bike, Clock3, HardHat, Headphones, LocateFixed, MapPin, Mic, Search, ShieldCheck, Sparkles, Star, Wrench, X, Zap } from 'lucide-react';
+import { AirVent, ArrowRight, ArrowUp, BadgeCheck, Bike, ChevronLeft, ChevronRight, Clock3, HardHat, Headphones, LocateFixed, MapPin, Mic, Search, ShieldCheck, Sparkles, Star, Wrench, X, Zap } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
@@ -59,7 +59,9 @@ export default function HomePage() {
   const [locationMessage, setLocationMessage] = useState('');
   const [showTop, setShowTop] = useState(false);
   const [heroIndex, setHeroIndex] = useState(0);
+  const [previousHeroIndex, setPreviousHeroIndex] = useState<number | null>(null);
   const [heroPaused, setHeroPaused] = useState(false);
+  const heroTouchStart = useRef<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -91,9 +93,9 @@ export default function HomePage() {
   }, []);
   useEffect(() => {
     if (heroPaused || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    const timer = window.setInterval(() => setHeroIndex(index => (index + 1) % heroStories.length), 5200);
+    const timer = window.setInterval(() => setHeroIndex(index => { setPreviousHeroIndex(index); return (index + 1) % heroStories.length; }), 8000);
     return () => window.clearInterval(timer);
-  }, [heroPaused]);
+  }, [heroPaused, heroIndex]);
   useEffect(() => {
     if (authLoading || user?.role !== 'CUSTOMER') return;
     api.getMyBookings().then(result => { if (result.success) setBookings(result.bookings || []); }).catch(() => undefined);
@@ -192,6 +194,21 @@ export default function HomePage() {
     if (filtered.length === 1) router.push(`/book/${filtered[0].slug}`);
     else document.getElementById('quick-book')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
+  const showPreviousStory = () => setHeroIndex(index => { setPreviousHeroIndex(index); return (index - 1 + heroStories.length) % heroStories.length; });
+  const showNextStory = () => setHeroIndex(index => { setPreviousHeroIndex(index); return (index + 1) % heroStories.length; });
+  const showStory = (nextIndex: number) => {
+    if (nextIndex === heroIndex) return;
+    setPreviousHeroIndex(heroIndex);
+    setHeroIndex(nextIndex);
+  };
+  const finishStorySwipe = (clientX: number) => {
+    if (heroTouchStart.current === null) return;
+    const distance = clientX - heroTouchStart.current;
+    heroTouchStart.current = null;
+    if (Math.abs(distance) < 42) return;
+    if (distance > 0) showPreviousStory();
+    else showNextStory();
+  };
 
   return <div className="rapid-home">
     <section className="rapid-arrival-bar" aria-label="Service speed and location">
@@ -204,12 +221,14 @@ export default function HomePage() {
 
     <section className="rapid-hero">
       <div className="rapid-hero-copy"><span className="rapid-kicker"><Sparkles size={15} /> {text('HOME HELP, WITHOUT THE WAIT', 'घर की मदद, बिना इंतज़ार')}</span><h1>{text('Your home,', 'आपका घर,')}<br/><em>{text('sorted in minutes.', 'मिनटों में तैयार।')}</em></h1><p>{text('Verified local professionals for repairs, maintenance and everyday help—with clear pricing and live tracking.', 'मरम्मत और रोज़मर्रा की मदद के लिए सत्यापित नज़दीकी प्रोफेशनल—स्पष्ट कीमत और लाइव ट्रैकिंग के साथ।')}</p><div className="rapid-proof"><span><ShieldCheck size={16} />{text('Verified partners', 'सत्यापित पार्टनर')}</span><span><Clock3 size={16} />{text('20-min target', '20 मिनट लक्ष्य')}</span><span><BadgeCheck size={16} />{text('Approval-first billing', 'पहले मंज़ूरी')}</span></div></div>
-      <div className="rapid-hero-visual rapid-story-carousel" role="region" aria-roledescription="carousel" aria-label={text('Professionals at work', 'काम करते प्रोफेशनल')} onMouseEnter={() => setHeroPaused(true)} onMouseLeave={() => setHeroPaused(false)} onFocusCapture={() => setHeroPaused(true)} onBlurCapture={() => setHeroPaused(false)}>
-        <div className="rapid-story-media">{heroStories.map((story, index) => <Image key={story.slug} src={story.image} alt={index === heroIndex ? (language === 'hi' ? story.titleHi : story.titleEn) : ''} aria-hidden={index !== heroIndex} fill priority={index === 0} sizes="(max-width: 767px) 100vw, 44vw" className={index === heroIndex ? 'is-active' : ''} />)}</div>
+      <div className="rapid-hero-visual rapid-story-carousel" role="region" aria-roledescription="carousel" aria-label={text('Professionals at work', 'काम करते प्रोफेशनल')} onMouseEnter={() => setHeroPaused(true)} onMouseLeave={() => setHeroPaused(false)} onFocusCapture={() => setHeroPaused(true)} onBlurCapture={() => setHeroPaused(false)} onTouchStart={event => { heroTouchStart.current = event.touches[0]?.clientX ?? null; }} onTouchEnd={event => { const touch = event.changedTouches[0]; if (touch) finishStorySwipe(touch.clientX); else heroTouchStart.current = null; }}>
+        <div className="rapid-story-media">{heroStories.map((story, index) => <Image key={story.slug} src={story.image} alt={index === heroIndex ? (language === 'hi' ? story.titleHi : story.titleEn) : ''} aria-hidden={index !== heroIndex} fill priority={index === 0} sizes="(max-width: 767px) 100vw, 44vw" className={index === heroIndex ? 'is-active' : index === previousHeroIndex ? 'is-leaving-left' : 'is-waiting-right'} />)}</div>
         <div className="rapid-story-shade" />
         <div className="rapid-story-status"><span className="online-dot" />{text('Verified professional', 'सत्यापित प्रोफेशनल')}<b>~20 min</b></div>
-        {heroStories.map((story, index) => { const Icon = story.Icon; return <div key={story.slug} className={`rapid-story-copy ${index === heroIndex ? 'is-active' : ''}`} aria-hidden={index !== heroIndex}><span><Icon size={19} /></span><div><small>{text('SERVZEST AT WORK', 'SERVZEST काम पर')}</small><strong>{language === 'hi' ? story.titleHi : story.titleEn}</strong><p>{language === 'hi' ? story.copyHi : story.copyEn}</p></div><Link href={`/book/${story.slug}`} tabIndex={index === heroIndex ? 0 : -1} aria-label={text(`Book ${story.titleEn}`, `${story.titleHi} बुक करें`)}><ArrowRight size={18} /></Link></div>; })}
-        <div className="rapid-story-dots" aria-label={text('Choose a service story', 'सेवा की तस्वीर चुनें')}>{heroStories.map((story, index) => <button type="button" key={story.slug} className={index === heroIndex ? 'is-active' : ''} onClick={() => setHeroIndex(index)} aria-label={text(`Show ${story.titleEn}`, `${story.titleHi} दिखाएँ`)} aria-current={index === heroIndex ? 'true' : undefined} />)}</div>
+        <button type="button" className="rapid-story-nav rapid-story-nav-prev" onClick={showPreviousStory} aria-label={text('Previous professional', 'पिछला प्रोफेशनल')}><ChevronLeft size={20} /></button>
+        <button type="button" className="rapid-story-nav rapid-story-nav-next" onClick={showNextStory} aria-label={text('Next professional', 'अगला प्रोफेशनल')}><ChevronRight size={20} /></button>
+        {heroStories.map((story, index) => { const Icon = story.Icon; return <div key={story.slug} className={`rapid-story-copy ${index === heroIndex ? 'is-active' : ''}`} aria-hidden={index !== heroIndex}><span className={`rapid-story-service-logo rapid-story-service-logo-${story.slug}`}><Icon size={22} strokeWidth={2.35} /></span><div><strong>{language === 'hi' ? story.titleHi : story.titleEn}</strong><p>{language === 'hi' ? story.copyHi : story.copyEn}</p></div><Link href={`/book/${story.slug}`} tabIndex={index === heroIndex ? 0 : -1} aria-label={text(`Book ${story.titleEn}`, `${story.titleHi} बुक करें`)}><ArrowRight size={18} /></Link></div>; })}
+        <div className="rapid-story-dots" aria-label={text('Choose a service story', 'सेवा की तस्वीर चुनें')}>{heroStories.map((story, index) => <button type="button" key={story.slug} className={index === heroIndex ? 'is-active' : ''} onClick={() => showStory(index)} aria-label={text(`Show ${story.titleEn}`, `${story.titleHi} दिखाएँ`)} aria-current={index === heroIndex ? 'true' : undefined} />)}</div>
       </div>
     </section>
 
