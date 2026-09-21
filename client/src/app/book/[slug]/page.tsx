@@ -30,11 +30,13 @@ export default function BookingPage() {
   const [quoteError, setQuoteError] = useState('');
   const [quoteBusy, setQuoteBusy] = useState(false);
   const [error, setError] = useState('');
+  const [draftNotice, setDraftNotice] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [now, setNow] = useState(Date.now());
   const requestKey = useRef('');
   const submittingRef = useRef(false);
+  const rebookAttempted = useRef(false);
   const update = (changes: Partial<Draft>) => setDraft(value => ({ ...value, ...changes }));
   const storageKey = `servzest_checkout_${slug}`;
   useEffect(() => {
@@ -42,12 +44,44 @@ export default function BookingPage() {
     try {
       const saved = sessionStorage.getItem(storageKey);
       const parsed = saved ? JSON.parse(saved) : null;
-      setDraft(parsed ? { ...initial, ...parsed } : initial);
+      let nextDraft = parsed ? { ...initial, ...parsed } : initial;
+      if (!parsed) {
+        const savedLocation = localStorage.getItem('servzest_home_location');
+        const homeLocation = savedLocation ? JSON.parse(savedLocation) : null;
+        if (homeLocation?.label && Number.isFinite(homeLocation.lat) && Number.isFinite(homeLocation.lng)) {
+          nextDraft = { ...nextDraft, lat: homeLocation.lat, lng: homeLocation.lng, address: homeLocation.label, hasPin: true, confirmed: false };
+        }
+      }
+      setDraft(nextDraft);
       setCouponInput(parsed?.coupon || '');
       requestKey.current = sessionStorage.getItem(`${storageKey}_request`) || crypto.randomUUID();
     } catch { setDraft(initial); requestKey.current = crypto.randomUUID(); }
     setReady(true);
   }, [storageKey]);
+  useEffect(() => {
+    if (!ready || authLoading || user?.role !== 'CUSTOMER' || rebookAttempted.current) return;
+    const previousId = new URLSearchParams(window.location.search).get('rebook');
+    if (!previousId) return;
+    rebookAttempted.current = true;
+    api.getBooking(previousId).then(result => {
+      const previous = result.booking;
+      if (!result.success || previous?.service?.slug !== slug) return;
+      const itemIds = (previous.items || []).map((item: { serviceItemId?: string }) => item.serviceItemId).filter(Boolean);
+      setDraft(current => ({
+        ...current,
+        lat: previous.pickupLat,
+        lng: previous.pickupLng,
+        address: previous.pickupAddress,
+        hasPin: true,
+        confirmed: false,
+        problem: previous.problemDescription || '',
+        itemIds,
+        mode: 'NOW',
+      }));
+      requestKey.current = crypto.randomUUID();
+      setDraftNotice('Previous booking details are filled in. Review the location, current price and confirm before booking.');
+    }).catch(() => undefined);
+  }, [ready, authLoading, user, slug]);
   useEffect(() => {
     if (!ready) return;
     try { sessionStorage.setItem(storageKey, JSON.stringify(draft)); sessionStorage.setItem(`${storageKey}_request`, requestKey.current); } catch { /* Storage may be disabled. */ }
@@ -108,6 +142,7 @@ export default function BookingPage() {
   const inputClass = 'w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-500';
   return <form onSubmit={handleBook} className="booking-design space-y-6 pb-8">
     <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs text-brand-700 font-bold uppercase tracking-wider">Book a home service</p><h1 className="text-3xl font-black text-slate-900 mt-1">{language === 'hi' ? service.nameHi : service.nameEn}</h1></div><span className="text-sm bg-brand-50 border border-brand-200 text-brand-800 rounded-full px-4 py-2">Visit fee {money(service.visitCharge)}</span></div>
+    {draftNotice && <p role="status" className="p-3 rounded-xl border border-brand-200 bg-brand-50 text-brand-800 text-sm">{draftNotice}</p>}
     <fieldset disabled={submitting} className="grid grid-cols-1 lg:grid-cols-12 gap-7 disabled:opacity-70">
       <div className="lg:col-span-7 space-y-5">
         <div className="flex gap-1 bg-slate-100 border border-slate-200 p-1.5 rounded-2xl">{(['NOW', 'SCHEDULE'] as const).map(mode => <button key={mode} type="button" aria-pressed={draft.mode === mode} onClick={() => update({ mode })} className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold ${draft.mode === mode ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600'}`}>{mode === 'NOW' ? <Zap className="w-4 h-4" /> : <Calendar className="w-4 h-4" />}{mode === 'NOW' ? t.bookNow : t.scheduleForLater}</button>)}</div>

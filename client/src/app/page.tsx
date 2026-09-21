@@ -1,44 +1,212 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowUpRight, ArrowRight, Search, ShieldCheck, RefreshCw, MapPin, Check } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import type { LucideIcon } from 'lucide-react';
+import { AirVent, ArrowRight, ArrowUp, BadgeCheck, Bike, Clock3, HardHat, Headphones, LocateFixed, MapPin, Mic, Search, ShieldCheck, Sparkles, Star, Wrench, X, Zap } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
+import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
-const descriptions: Record<string,string> = { ac:'Cooling, servicing & repairs',plumber:'Leaks, taps & everyday fixes',electrician:'Safe repairs, thoughtfully handled',majdoor:'An extra pair of capable hands',mechanic:'Get things moving again' };
-export default function HomePage(){
- const {language}=useLanguage(); const text=(en:string,hi:string)=>language==='hi'?hi:en;
- const [services,setServices]=useState<any[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState(''),[query,setQuery]=useState('');
- const load=useCallback(async()=>{setLoading(true);setError('');try{const result=await api.getServices();if(!result.success)throw Error();setServices(result.services);}catch{setError('Services could not load. Please try again.');}finally{setLoading(false);}},[]);
- useEffect(()=>{void load()},[load]);
- const filtered=services.filter(s=>`${s.nameEn} ${s.nameHi} ${s.slug} ${(s.items||[]).map((i:any)=>i.nameEn).join(' ')}`.toLowerCase().includes(query.trim().toLowerCase()));
- return <div className="concierge-home">
-  <section className="concierge-intro"><div><span className="concierge-eyebrow">{text('A LITTLE LESS TO WORRY ABOUT','घर की देखभाल, आसानी से')}</span><h1>{text('Love your home.','अपने घर से प्यार।')}<br/><em>{text('We’ll care for it.','देखभाल हम करेंगे।')}</em></h1><p>{text('For the things your home needs.','आपके घर की ज़रूरतों के लिए।')}<br/>{text('And the time you’d rather keep.','ताकि आपका समय आपका रहे।')}</p><a href="#services-grid" className="concierge-text-link">{text('Find your helping hand','अपनी सेवा चुनें')}<ArrowRight size={18}/></a></div><aside className="home-showcase" aria-label="A thoughtfully cared-for home">
- <span className="showcase-caption">THE ART OF EVERYDAY CARE</span>
- <svg viewBox="0 0 520 480" role="img" aria-label="Sunlit interior with an arched window, lounge chair and houseplant">
-  <defs><linearGradient id="wall" x2="1" y2="1"><stop stopColor="#e9e0d0"/><stop offset="1" stopColor="#d3c4a8"/></linearGradient><linearGradient id="window" x2="0" y2="1"><stop stopColor="#bacab9"/><stop offset="1" stopColor="#f6f0d9"/></linearGradient><linearGradient id="seat" x2="1" y2="1"><stop stopColor="#6b7858"/><stop offset="1" stopColor="#354b35"/></linearGradient></defs>
-  <rect width="520" height="480" fill="url(#wall)"/><path d="M0 365H520V480H0Z" fill="#c5b699"/>
-  <path d="M61 346V152A98 98 0 0 1 257 152V346Z" fill="#a79c82"/><path d="M73 345V153A86 86 0 0 1 245 153V345Z" fill="url(#window)"/>
-  <path d="M159 67V345M75 196H244" stroke="#ece5d5" strokeWidth="8"/><path d="M73 286Q110 250 159 279T245 271V345H73Z" fill="#a8b29a"/><path d="M73 319Q140 286 245 310V345H73Z" fill="#879777"/>
-  <path d="M83 347L283 480H477L226 347Z" fill="#e8dec1" opacity=".65"/><path d="M159 347L341 480M73 396H330" stroke="#b7a787" strokeWidth="6" opacity=".45"/>
-  <ellipse cx="304" cy="425" rx="149" ry="27" fill="#9a937b" opacity=".4"/>
-  <path d="M229 376L217 436M364 371L380 431" stroke="#594d39" strokeWidth="9"/>
-  <rect x="211" y="236" width="160" height="151" rx="48" fill="url(#seat)"/><path d="M229 337Q282 316 350 337V389H225Z" fill="#7a8968"/><rect x="194" y="320" width="38" height="82" rx="17" fill="#485e40"/><rect x="353" y="319" width="36" height="83" rx="17" fill="#40563b"/>
-  <rect x="259" y="266" width="68" height="64" rx="13" fill="#e5d4ae" transform="rotate(12 293 298)"/><path d="M268 280L309 289M265 292L307 301" stroke="#c6ae83" strokeWidth="2"/>
-  <path d="M395 354V168" stroke="#78684b" strokeWidth="5"/><path d="M349 174L365 126H425L442 174Z" fill="#f6eacd"/><ellipse cx="395" cy="174" rx="47" ry="7" fill="#bbaa84"/><ellipse cx="395" cy="358" rx="31" ry="6" fill="#78684b"/>
-  <path d="M453 400V292" stroke="#62714b" strokeWidth="4"/><ellipse cx="437" cy="309" rx="13" ry="35" fill="#7b8a58" transform="rotate(-39 437 309)"/><ellipse cx="470" cy="283" rx="15" ry="38" fill="#536d43" transform="rotate(31 470 283)"/><ellipse cx="469" cy="329" rx="12" ry="30" fill="#8b9965" transform="rotate(40 469 329)"/><path d="M430 371H479L470 427H440Z" fill="#aa7758"/>
-  <ellipse cx="128" cy="405" rx="53" ry="14" fill="#ecd9b7"/><path d="M100 414L92 450M157 414L165 450" stroke="#957757" strokeWidth="5"/><rect x="117" y="378" width="19" height="23" rx="5" fill="#f8f3e6"/><path d="M136 382Q150 382 143 393H136" fill="none" stroke="#f8f3e6" strokeWidth="4"/>
- </svg>
- <div className="showcase-badge"><ShieldCheck size={21}/><div><strong>{text('Home feels better, cared for.','देखभाल से घर बने बेहतर।')}</strong><span>{text('Leave the little fixes to us.','छोटी परेशानियाँ हम पर छोड़ें।')}</span></div></div>
- </aside></section>
-  <section id="services-grid" className="concierge-catalog"><div className="concierge-catalog-head"><div><span className="concierge-eyebrow">{text('THE EVERYDAY ESSENTIALS','घर की ज़रूरी सेवाएँ')}</span><h2>{text('What needs attention?','किस काम में मदद चाहिए?')}</h2></div><label className="concierge-search"><Search size={18}/><input aria-label="Search services" placeholder={text('Find a service','सेवा खोजें')} value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<button type="button" aria-label="Clear search" onClick={()=>setQuery('')}>×</button>}</label></div>
-  {loading&&<p role="status" className="concierge-empty">{text('Finding your home essentials…','सेवाएँ लोड हो रही हैं…')}</p>}
-  {error&&<div role="alert" className="concierge-empty">{error}<button onClick={load} className="secondary-action"><RefreshCw size={16}/>Retry</button></div>}
-  {!loading&&!error&&<div className="concierge-services">{filtered.map((s,i)=><Link href={`/book/${s.slug}`} key={s.id} className="concierge-service"><span className="concierge-number">{String(i+1).padStart(2,'0')}</span><div><h3>{language==='hi'?s.nameHi:s.nameEn}</h3><p>{language==='hi'?'कीमत देखें और सेवा बुक करें।':descriptions[s.slug]||'A helping hand for your home'}</p></div><span className="concierge-price"><small>{text('Visit from','विज़िट शुल्क')}</small>₹{Number(s.visitCharge).toLocaleString('en-IN')}</span><ArrowUpRight size={22}/></Link>)}</div>}
-  {!loading&&!error&&!filtered.length&&<p role="status" className="concierge-empty">{text('No match. Try AC, plumber or electrician.','सेवा नहीं मिली। एसी या प्लंबर खोजें।')}</p>}
-  </section>
-  <div className="concierge-promise"><ShieldCheck size={22}/><div><strong>{text('Your approval. Before extra work.','अतिरिक्त काम से पहले आपकी मंज़ूरी।')}</strong><p>{text('Clear estimates. Cash or UPI after service.','स्पष्ट अनुमान। सेवा के बाद कैश या UPI भुगतान।')}</p></div></div>
-  <section className="concierge-process"><div><span className="concierge-eyebrow">{text('THOUGHTFULLY SIMPLE','आसान और स्पष्ट')}</span><h2>{text('Less to manage.','कम परेशानी।')}<br/><em>{text('More peace of mind.','ज़्यादा सुकून।')}</em></h2></div><div>{[{Icon:Check,title:text('Choose what you need','अपनी सेवा चुनें'),body:text('See the visit price and tell us what needs fixing.','विज़िट शुल्क देखें और अपनी समस्या बताएँ।')},{Icon:MapPin,title:text('Follow their arrival','कारीगर की लोकेशन देखें'),body:text('After acceptance, follow the available live location and estimated arrival.','स्वीकृति के बाद उपलब्ध लाइव लोकेशन और आने का अनुमान देखें।')},{Icon:ShieldCheck,title:text('Stay in control','हर कदम पर आपकी मंज़ूरी'),body:text('Approve extra repairs, review the bill and pay after service.','अतिरिक्त मरम्मत मंज़ूर करें, बिल देखें और फिर भुगतान करें।')}].map(({Icon,title,body})=><article key={title}><Icon size={20}/><div><h3>{title}</h3><p>{body}</p></div></article>)}</div></section>
-  <section className="concierge-partner"><div><span className="concierge-eyebrow">{text('FOR PEOPLE WHO KNOW THEIR CRAFT','हुनरमंद लोगों के लिए')}</span><h2>{text('Good at what you do?','अपने काम में माहिर हैं?')}</h2><p>{text('Bring your expertise. We’ll help you manage the work.','अपना हुनर लाएँ। काम मैनेज करने में हम मदद करेंगे।')}</p></div><Link href="/login" className="primary-action">{text('Join as a professional','कारीगर के रूप में जुड़ें')}<ArrowUpRight size={18}/></Link></section>
-  <p className="concierge-disclaimer">{text('Arrival depends on nearby availability and traffic. Final repairs and parts require your approval.','आगमन उपलब्धता और ट्रैफिक पर निर्भर है। अतिरिक्त काम के लिए आपकी मंज़ूरी ज़रूरी है।')}</p>
- </div>;
+
+type Service = {
+  id: string;
+  slug: string;
+  nameEn: string;
+  nameHi: string;
+  visitCharge: number;
+  items?: Array<{ nameEn: string }>;
+  market?: { averageRating: number | null; reviewCount: number; onlineWorkers: number; completedBookings: number };
+};
+type Booking = { id: string; status: string; service?: Service; worker?: { user?: { name?: string } }; createdAt: string };
+type LocationSuggestion = { label: string; lat: number; lng: number };
+
+const serviceMeta: Record<string, { Icon: LucideIcon; description: string; hindi: string }> = {
+  electrician: { Icon: Zap, description: 'Switches, wiring & appliance fixes', hindi: 'वायरिंग, स्विच और उपकरण' },
+  plumber: { Icon: Wrench, description: 'Leaks, taps & water fittings', hindi: 'लीकेज, नल और फिटिंग' },
+  ac: { Icon: AirVent, description: 'Service, cooling & installation', hindi: 'सर्विस, कूलिंग और इंस्टॉलेशन' },
+  majdoor: { Icon: HardHat, description: 'Moving, loading & skilled help', hindi: 'शिफ्टिंग और घरेलू सहायता' },
+  mechanic: { Icon: Bike, description: 'Puncture, battery & roadside help', hindi: 'पंचर और रोडसाइड सहायता' },
+};
+const rotatingSearches = ['Plumber', 'Electrician', 'AC repair', 'Mechanic', 'Home helper'];
+const HOME_LOCATION_KEY = 'servzest_home_location';
+
+export default function HomePage() {
+  const router = useRouter();
+  const { language } = useLanguage();
+  const { user, isLoading: authLoading } = useAuth();
+  const text = (english: string, hindi: string) => language === 'hi' ? hindi : english;
+  const [services, setServices] = useState<Service[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [query, setQuery] = useState('');
+  const [searchIndex, setSearchIndex] = useState(0);
+  const [listening, setListening] = useState(false);
+  const [searchMessage, setSearchMessage] = useState('');
+  const [locationOpen, setLocationOpen] = useState(false);
+  const [locationQuery, setLocationQuery] = useState('');
+  const [location, setLocation] = useState<LocationSuggestion | null>(null);
+  const [locationResults, setLocationResults] = useState<LocationSuggestion[]>([]);
+  const [locationBusy, setLocationBusy] = useState(false);
+  const [locationMessage, setLocationMessage] = useState('');
+  const [showTop, setShowTop] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await api.getServices();
+      if (!result.success) throw new Error(result.message);
+      setServices(result.services);
+    } catch {
+      setError(text('Services could not load. Please retry.', 'सेवाएँ लोड नहीं हुईं। दोबारा कोशिश करें।'));
+    } finally { setLoading(false); }
+  }, [language]);
+
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(HOME_LOCATION_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as LocationSuggestion;
+        if (parsed.label && Number.isFinite(parsed.lat) && Number.isFinite(parsed.lng)) setLocation(parsed);
+      }
+    } catch { /* Storage may be unavailable. */ }
+  }, []);
+  useEffect(() => {
+    const timer = window.setInterval(() => setSearchIndex(index => (index + 1) % rotatingSearches.length), 2400);
+    const onScroll = () => setShowTop(window.scrollY > 650);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => { window.clearInterval(timer); window.removeEventListener('scroll', onScroll); };
+  }, []);
+  useEffect(() => {
+    if (authLoading || user?.role !== 'CUSTOMER') return;
+    api.getMyBookings().then(result => { if (result.success) setBookings(result.bookings || []); }).catch(() => undefined);
+  }, [authLoading, user]);
+  useEffect(() => {
+    if (!locationOpen || locationQuery.trim().length < 3) {
+      setLocationResults([]);
+      setLocationBusy(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setLocationBusy(true);
+      setLocationMessage('');
+      try {
+        const response = await fetch(`/api/locations?q=${encodeURIComponent(locationQuery.trim())}`, { signal: controller.signal });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message);
+        setLocationResults(result.results || []);
+        if (!result.results?.length) setLocationMessage(text('No matching area found. Add your city or landmark.', 'लोकेशन नहीं मिली। शहर या लैंडमार्क भी लिखें।'));
+      } catch {
+        if (!controller.signal.aborted) setLocationMessage(text('Location search is unavailable. Try GPS.', 'लोकेशन सर्च उपलब्ध नहीं है। GPS आज़माएँ।'));
+      } finally { if (!controller.signal.aborted) setLocationBusy(false); }
+    }, 450);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [locationOpen, locationQuery, language]);
+
+  const saveLocation = (next: LocationSuggestion) => {
+    setLocation(next);
+    setLocationQuery(next.label);
+    setLocationOpen(false);
+    setLocationResults([]);
+    setLocationMessage('');
+    try { localStorage.setItem(HOME_LOCATION_KEY, JSON.stringify(next)); } catch { /* Storage may be unavailable. */ }
+  };
+  const locateMe = () => {
+    if (!navigator.geolocation || !window.isSecureContext) {
+      setLocationMessage(text('GPS needs HTTPS or localhost. Search your area instead.', 'GPS के लिए HTTPS या localhost चाहिए। अपना एरिया खोजें।'));
+      return;
+    }
+    setLocationBusy(true);
+    setLocationMessage(text('Finding your location…', 'आपकी लोकेशन खोज रहे हैं…'));
+    navigator.geolocation.getCurrentPosition(async position => {
+      try {
+        const { latitude: lat, longitude: lng } = position.coords;
+        const response = await fetch(`/api/locations?reverse=1&lat=${lat}&lng=${lng}`);
+        const result = await response.json();
+        saveLocation(result.results?.[0] || { label: `${lat.toFixed(5)}, ${lng.toFixed(5)}`, lat, lng });
+      } catch {
+        setLocationMessage(text('Address lookup failed. Search your area manually.', 'पता नहीं मिला। अपना एरिया खोजें।'));
+      } finally { setLocationBusy(false); }
+    }, geoError => {
+      setLocationBusy(false);
+      setLocationMessage(geoError.code === 1
+        ? text('Location permission is blocked. Allow it in browser settings.', 'लोकेशन अनुमति बंद है। ब्राउज़र सेटिंग में अनुमति दें।')
+        : text('GPS could not find you. Search your area.', 'GPS लोकेशन नहीं मिली। अपना एरिया खोजें।'));
+    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
+  };
+
+  const filtered = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    if (!term) return services;
+    return services.filter(service => `${service.nameEn} ${service.nameHi} ${service.slug} ${(service.items || []).map(item => item.nameEn).join(' ')}`.toLowerCase().includes(term));
+  }, [query, services]);
+  const repeatBookings = useMemo(() => {
+    const seen = new Set<string>();
+    return bookings.filter(booking => {
+      const slug = booking.service?.slug;
+      if (booking.status !== 'COMPLETED' || !slug || seen.has(slug)) return false;
+      seen.add(slug);
+      return true;
+    }).slice(0, 5);
+  }, [bookings]);
+
+  const startVoiceSearch = () => {
+    const BrowserRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!BrowserRecognition) {
+      setSearchMessage(text('Voice search is not supported in this browser.', 'इस ब्राउज़र में वॉइस सर्च उपलब्ध नहीं है।'));
+      return;
+    }
+    const recognition = new BrowserRecognition();
+    recognition.lang = language === 'hi' ? 'hi-IN' : 'en-IN';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onstart = () => { setListening(true); setSearchMessage(text('Listening…', 'सुन रहे हैं…')); };
+    recognition.onend = () => setListening(false);
+    recognition.onerror = () => { setListening(false); setSearchMessage(text('Could not hear that. Try again.', 'आवाज़ समझ नहीं आई। दोबारा कोशिश करें।')); };
+    recognition.onresult = (event: any) => {
+      const value = event.results?.[0]?.[0]?.transcript || '';
+      setQuery(value);
+      setSearchMessage(value ? text(`Showing results for “${value}”`, `“${value}” के परिणाम`) : '');
+    };
+    recognition.start();
+  };
+  const submitSearch = () => {
+    if (filtered.length === 1) router.push(`/book/${filtered[0].slug}`);
+    else document.getElementById('quick-book')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  return <div className="rapid-home">
+    <section className="rapid-arrival-bar" aria-label="Service speed and location">
+      <div className="rapid-eta"><span><Zap size={14} fill="currentColor" /> {text('ARRIVAL TARGET', 'आने का लक्ष्य')}</span><strong>{text('Professional in ~20 min', 'प्रोफेशनल लगभग 20 मिनट में')}</strong><small>{text('Subject to nearby availability & traffic', 'नज़दीकी उपलब्धता और ट्रैफिक पर निर्भर')}</small></div>
+      <div className="rapid-location-wrap">
+        <button type="button" className="rapid-location-button" onClick={() => setLocationOpen(open => !open)} aria-expanded={locationOpen}><span className="rapid-location-icon"><MapPin size={19} /></span><span><small>{text('SERVICE LOCATION', 'सेवा की लोकेशन')}</small><strong>{location?.label || text('Select your area', 'अपना एरिया चुनें')}</strong></span><ArrowRight size={17} /></button>
+        {locationOpen && <div className="rapid-location-panel"><div className="rapid-location-search"><Search size={17} /><input autoFocus value={locationQuery} onChange={event => setLocationQuery(event.target.value)} placeholder={text('Search area, address or landmark', 'एरिया, पता या लैंडमार्क खोजें')} /><button type="button" onClick={() => { setLocationQuery(''); setLocationResults([]); }} aria-label="Clear location"><X size={16} /></button></div><button type="button" className="rapid-use-location" onClick={locateMe} disabled={locationBusy}><LocateFixed size={17} />{locationBusy ? text('Locating…', 'खोज रहे हैं…') : text('Use my current location', 'मेरी मौजूदा लोकेशन')}</button>{locationResults.length > 0 && <div className="rapid-location-results">{locationResults.map(item => <button type="button" key={`${item.lat}-${item.lng}`} onClick={() => saveLocation(item)}><MapPin size={15} /><span>{item.label}</span></button>)}</div>}{locationMessage && <p role="status" className="rapid-location-message">{locationMessage}</p>}{locationQuery.trim().length > 0 && locationQuery.trim().length < 3 && <p className="rapid-location-message">{text('Type at least 3 letters.', 'कम से कम 3 अक्षर लिखें।')}</p>}</div>}
+      </div>
+    </section>
+
+    <section className="rapid-hero">
+      <div className="rapid-hero-copy"><span className="rapid-kicker"><Sparkles size={15} /> {text('HOME HELP, WITHOUT THE WAIT', 'घर की मदद, बिना इंतज़ार')}</span><h1>{text('Your home,', 'आपका घर,')}<br/><em>{text('sorted in minutes.', 'मिनटों में तैयार।')}</em></h1><p>{text('Verified local professionals for repairs, maintenance and everyday help—with clear pricing and live tracking.', 'मरम्मत और रोज़मर्रा की मदद के लिए सत्यापित नज़दीकी प्रोफेशनल—स्पष्ट कीमत और लाइव ट्रैकिंग के साथ।')}</p><div className="rapid-proof"><span><ShieldCheck size={16} />{text('Verified partners', 'सत्यापित पार्टनर')}</span><span><Clock3 size={16} />{text('20-min target', '20 मिनट लक्ष्य')}</span><span><BadgeCheck size={16} />{text('Approval-first billing', 'पहले मंज़ूरी')}</span></div></div>
+      <div className="rapid-hero-visual" aria-label="Fast home services"><div className="rapid-orbit"><div className="rapid-orbit-core"><strong>20</strong><span>MIN</span><small>{text('TARGET', 'लक्ष्य')}</small></div>{[Zap, Wrench, AirVent, Bike].map((Icon, index) => <span key={index} className={`rapid-orbit-item rapid-orbit-item-${index + 1}`}><Icon size={22} /></span>)}</div><div className="rapid-visual-card rapid-visual-card-top"><span className="online-dot" />{text('Nearby partners online', 'नज़दीकी पार्टनर ऑनलाइन')}</div><div className="rapid-visual-card rapid-visual-card-bottom"><Star size={16} fill="currentColor" />{text('Rated after every job', 'हर काम के बाद रेटिंग')}</div></div>
+    </section>
+
+    <section className="rapid-smart-search" aria-label="Search services"><Search size={22} /><input aria-label="Search services" value={query} onChange={event => { setQuery(event.target.value); setSearchMessage(''); }} onKeyDown={event => { if (event.key === 'Enter') submitSearch(); }} placeholder={text(`Search “${rotatingSearches[searchIndex]}”`, `“${rotatingSearches[searchIndex]}” खोजें`)} /><button type="button" onClick={startVoiceSearch} className={listening ? 'is-listening' : ''} aria-label="Search by voice"><Mic size={21} /></button>{query && <button type="button" onClick={() => setQuery('')} aria-label="Clear search"><X size={20} /></button>}</section>
+    {searchMessage && <p className="rapid-search-message" role="status">{searchMessage}</p>}
+    {query && <div className="rapid-suggestions">{filtered.slice(0, 5).map(service => { const Icon = serviceMeta[service.slug]?.Icon || Wrench; return <Link href={`/book/${service.slug}`} key={service.id}><Icon size={18} /><span><b>{language === 'hi' ? service.nameHi : service.nameEn}</b><small>{serviceMeta[service.slug]?.description}</small></span><ArrowRight size={16} /></Link>; })}{!filtered.length && <p>{text('No exact match. Try plumber, electrician or AC.', 'सेवा नहीं मिली। प्लंबर, इलेक्ट्रीशियन या AC खोजें।')}</p>}</div>}
+
+    <section id="services-grid" className="rapid-section rapid-categories"><div className="rapid-section-head"><div><span>{text('SERVICES', 'सेवाएँ')}</span><h2>{text('What do you need help with?', 'आज किस काम में मदद चाहिए?')}</h2></div><small>{text('Tap to see transparent rates', 'स्पष्ट कीमत देखने के लिए चुनें')}</small></div>{loading && <div className="rapid-category-grid" aria-label="Loading services">{Array.from({ length: 5 }, (_, index) => <div className="rapid-category-skeleton" key={index} />)}</div>}{error && <div className="rapid-state" role="alert"><p>{error}</p><button onClick={load}>{text('Try again', 'दोबारा कोशिश करें')}</button></div>}{!loading && !error && <div className="rapid-category-grid">{services.map((service, index) => { const Icon = serviceMeta[service.slug]?.Icon || Wrench; return <Link href={`/book/${service.slug}`} key={service.id} className={`rapid-category rapid-category-${(index % 5) + 1}`}><span><Icon size={27} /></span><b>{language === 'hi' ? service.nameHi : service.nameEn}</b><small>{text(serviceMeta[service.slug]?.description || 'Home service', serviceMeta[service.slug]?.hindi || 'घरेलू सेवा')}</small></Link>; })}</div>}</section>
+
+    <section className="rapid-offer"><div><span className="rapid-offer-tag">WELCOME50</span><h2>{text('₹50 off your first booking', 'पहली बुकिंग पर ₹50 की बचत')}</h2><p>{text('Use the code at checkout. Final price stays in your control.', 'चेकआउट पर कोड लगाएँ। अंतिम कीमत आपकी मंज़ूरी से तय होगी।')}</p></div><Link href={services[0] ? `/book/${services[0].slug}` : '#services-grid'}>{text('Explore services', 'सेवाएँ देखें')}<ArrowRight size={18} /></Link><div className="rapid-offer-shape" aria-hidden="true"><Sparkles size={40} /></div></section>
+
+    {repeatBookings.length > 0 && <section className="rapid-section"><div className="rapid-section-head"><div><span>{text('YOUR FAVOURITES', 'आपकी पसंद')}</span><h2>{text('Book again', 'फिर से बुक करें')}</h2></div><Link href="/history">{text('View history', 'हिस्ट्री देखें')}<ArrowRight size={15} /></Link></div><div className="rapid-rebook-row">{repeatBookings.map(booking => { const service = booking.service!; const Icon = serviceMeta[service.slug]?.Icon || Wrench; return <article key={booking.id}><span className="rapid-rebook-icon"><Icon size={22} /></span><div><b>{language === 'hi' ? service.nameHi : service.nameEn}</b><small>{booking.worker?.user?.name || text('Verified professional', 'सत्यापित प्रोफेशनल')}</small></div><Link href={`/book/${service.slug}?rebook=${booking.id}`}>{text('Book again', 'फिर बुक करें')}</Link></article>; })}</div></section>}
+
+    <section id="quick-book" className="rapid-section rapid-quick"><div className="rapid-section-head"><div><span>{text('AVAILABLE SERVICES', 'उपलब्ध सेवाएँ')}</span><h2>{text(query ? `Results for “${query}”` : 'Quick book near you', query ? `“${query}” के परिणाम` : 'नज़दीकी सेवा तुरंत बुक करें')}</h2></div><small>{text('Live availability can change', 'उपलब्धता बदल सकती है')}</small></div>{!loading && !error && <div className="rapid-service-grid">{filtered.map(service => { const meta = serviceMeta[service.slug]; const Icon = meta?.Icon || Wrench; const market = service.market; return <article key={service.id} className="rapid-service-card"><div className="rapid-service-card-top"><span className="rapid-service-icon"><Icon size={27} /></span>{market && market.onlineWorkers > 0 ? <span className="rapid-live"><i />{market.onlineWorkers} {text('online', 'ऑनलाइन')}</span> : <span className="rapid-neutral">{text('Check availability', 'उपलब्धता देखें')}</span>}</div><h3>{language === 'hi' ? service.nameHi : service.nameEn}</h3><p>{text(meta?.description || 'Trusted help for your home', meta?.hindi || 'आपके घर के लिए भरोसेमंद मदद')}</p><div className="rapid-service-badges"><span><Clock3 size={13} />~20 min target</span>{market?.averageRating ? <span><Star size={13} fill="currentColor" />{market.averageRating.toFixed(1)} ({market.reviewCount})</span> : <span><BadgeCheck size={13} />Verified</span>}</div><div className="rapid-service-footer"><span><small>{text('Visit from', 'विज़िट शुल्क')}</small><b>₹{Number(service.visitCharge).toLocaleString('en-IN')}</b></span><Link href={`/book/${service.slug}`}>{text('Book', 'बुक करें')}<ArrowRight size={15} /></Link></div></article>; })}</div>}{!loading && !error && !filtered.length && <div className="rapid-state"><p>{text('No matching service found.', 'मिलती हुई सेवा नहीं मिली।')}</p><button onClick={() => setQuery('')}>{text('Show all services', 'सभी सेवाएँ देखें')}</button></div>}</section>
+
+    <section className="rapid-assurance"><div><ShieldCheck size={24} /><span><b>{text('Your approval comes first', 'आपकी मंज़ूरी सबसे पहले')}</b><small>{text('Extra work and parts are added only after you approve them.', 'अतिरिक्त काम और पार्ट्स आपकी मंज़ूरी के बाद ही जुड़ेंगे।')}</small></span></div><div><Headphones size={24} /><span><b>{text('Support through every booking', 'हर बुकिंग में सहायता')}</b><small>{text('Track, pay, rate or report an issue from one place.', 'एक ही जगह ट्रैक, भुगतान, रेटिंग या शिकायत करें।')}</small></span></div><Link href="/contact">{text('Get help', 'मदद लें')}<ArrowRight size={16} /></Link></section>
+    <section className="rapid-partner"><div><span>{text('SERVZEST PARTNER', 'SERVZEST पार्टनर')}</span><h2>{text('Turn your skill into steady work.', 'अपने हुनर को नियमित काम में बदलें।')}</h2><p>{text('Verified professionals can receive nearby jobs, manage earnings and build their reputation.', 'सत्यापित प्रोफेशनल नज़दीकी काम, कमाई और अपनी रेटिंग मैनेज कर सकते हैं।')}</p></div><Link href="/login?role=WORKER">{text('Join as a professional', 'प्रोफेशनल के रूप में जुड़ें')}<ArrowRight size={17} /></Link></section>
+    {showTop && <button type="button" className="rapid-back-top" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><ArrowUp size={17} /><span>{text('Top', 'ऊपर')}</span></button>}
+  </div>;
 }
