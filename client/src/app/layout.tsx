@@ -41,7 +41,7 @@ export default function RootLayout({
                 <AppRuntime />
                 <div className="min-h-screen flex flex-col relative pb-24 lg:pb-0">
                   <Header />
-                  <main className="app-main flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
+                  <main className="app-main flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
                     {children}
                   </main>
                   <Footer />

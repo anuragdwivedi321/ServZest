@@ -11,7 +11,7 @@ export const Footer: React.FC = () => {
 
   return (
     <footer className="site-footer bg-white border-t border-slate-200 mt-12 text-xs text-slate-600">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 space-y-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 space-y-6">
         {/* Brand & Mission */}
         <div className="space-y-2">
           <BrandLogo compact />
