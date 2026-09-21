@@ -49,7 +49,7 @@ export default function BookingPage() {
         const savedLocation = localStorage.getItem('servzest_home_location');
         const homeLocation = savedLocation ? JSON.parse(savedLocation) : null;
         if (homeLocation?.label && Number.isFinite(homeLocation.lat) && Number.isFinite(homeLocation.lng)) {
-          nextDraft = { ...nextDraft, lat: homeLocation.lat, lng: homeLocation.lng, address: homeLocation.label, hasPin: true, confirmed: false };
+          nextDraft = { ...nextDraft, lat: homeLocation.lat, lng: homeLocation.lng, address: homeLocation.needsAddress ? '' : homeLocation.label, hasPin: true, confirmed: false };
         }
       }
       setDraft(nextDraft);

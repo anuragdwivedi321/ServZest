@@ -7,7 +7,7 @@ import { networkInterfaces } from 'node:os';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const services = [
   { name: 'Backend', folder: 'server', entry: 'tsx/dist/cli.mjs', args: ['watch', 'src/index.ts'] },
-  { name: 'Website', folder: 'client', entry: 'next/dist/bin/next', args: ['dev', '--hostname', '0.0.0.0', '--port', '3001'] },
+  { name: 'Website', folder: 'client', entry: 'next/dist/bin/next', args: ['dev', '--webpack', '--hostname', '0.0.0.0', '--port', '3000'] },
 ];
 
 for (const service of services) {
@@ -44,9 +44,9 @@ function stop(code = 0) {
 process.on('SIGINT', () => stop());
 process.on('SIGTERM', () => stop());
 
-console.log('\nServZest development: http://localhost:3001');
+console.log('\nServZest development: http://localhost:3000');
 for (const addresses of Object.values(networkInterfaces())) for (const address of addresses || []) {
-  if (address.family === 'IPv4' && !address.internal) console.log(`Mobile (same Wi-Fi): http://${address.address}:3001`);
+  if (address.family === 'IPv4' && !address.internal) console.log(`Mobile (same Wi-Fi): http://${address.address}:3000`);
 }
 console.log('Save files to update the website automatically. Keep this running; Ctrl+C stops both servers.\n');
 

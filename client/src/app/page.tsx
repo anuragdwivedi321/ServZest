@@ -5,7 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { LucideIcon } from 'lucide-react';
-import { AirVent, ArrowRight, ArrowUp, BadgeCheck, Bike, ChevronLeft, ChevronRight, Clock3, HardHat, Headphones, LocateFixed, MapPin, Mic, Search, ShieldCheck, Sparkles, Star, Wrench, X, Zap } from 'lucide-react';
+import { AirVent, ArrowRight, ArrowUp, BadgeCheck, Bike, Calendar, CheckCircle2, Clock3, CreditCard, HardHat, Headphones, IndianRupee, LocateFixed, MapPin, Mic, Search, ShieldCheck, Sparkles, Star, Users, Wrench, X, Zap } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
@@ -20,7 +20,7 @@ type Service = {
   market?: { averageRating: number | null; reviewCount: number; onlineWorkers: number; completedBookings: number };
 };
 type Booking = { id: string; status: string; service?: Service; worker?: { user?: { name?: string } }; createdAt: string };
-type LocationSuggestion = { label: string; lat: number; lng: number };
+type LocationSuggestion = { label: string; lat: number; lng: number; needsAddress?: boolean };
 
 const serviceMeta: Record<string, { Icon: LucideIcon; description: string; hindi: string }> = {
   electrician: { Icon: Zap, description: 'Switches, wiring & appliance fixes', hindi: 'वायरिंग, स्विच और उपकरण' },
@@ -30,6 +30,13 @@ const serviceMeta: Record<string, { Icon: LucideIcon; description: string; hindi
   mechanic: { Icon: Bike, description: 'Puncture, battery & roadside help', hindi: 'पंचर और रोडसाइड सहायता' },
 };
 const rotatingSearches = ['Plumber', 'Electrician', 'AC repair', 'Mechanic', 'Home helper'];
+const servicePreview = [
+  { slug: 'electrician', nameEn: 'Electrician', nameHi: 'इलेक्ट्रीशियन' },
+  { slug: 'plumber', nameEn: 'Plumber', nameHi: 'प्लंबर' },
+  { slug: 'ac', nameEn: 'AC repair', nameHi: 'एसी रिपेयर' },
+  { slug: 'majdoor', nameEn: 'Home helper', nameHi: 'घरेलू सहायक' },
+  { slug: 'mechanic', nameEn: 'Mechanic', nameHi: 'मैकेनिक' },
+];
 const heroStories = [
   { slug: 'electrician', image: '/images/hero/electrician.webp', Icon: Zap, titleEn: 'Electrician at work', titleHi: 'काम पर इलेक्ट्रीशियन', copyEn: 'Safe wiring and switch repairs', copyHi: 'सुरक्षित वायरिंग और स्विच मरम्मत' },
   { slug: 'plumber', image: '/images/hero/plumber.webp', Icon: Wrench, titleEn: 'Plumber at work', titleHi: 'काम पर प्लंबर', copyEn: 'Leaks and fittings fixed cleanly', copyHi: 'लीकेज और फिटिंग की साफ़ मरम्मत' },
@@ -55,13 +62,16 @@ export default function HomePage() {
   const [locationQuery, setLocationQuery] = useState('');
   const [location, setLocation] = useState<LocationSuggestion | null>(null);
   const [locationResults, setLocationResults] = useState<LocationSuggestion[]>([]);
-  const [locationBusy, setLocationBusy] = useState(false);
+  const [locationSearchBusy, setLocationSearchBusy] = useState(false);
+  const [gpsBusy, setGpsBusy] = useState(false);
   const [locationMessage, setLocationMessage] = useState('');
   const [showTop, setShowTop] = useState(false);
   const [heroIndex, setHeroIndex] = useState(0);
   const [previousHeroIndex, setPreviousHeroIndex] = useState<number | null>(null);
   const [heroPaused, setHeroPaused] = useState(false);
   const heroTouchStart = useRef<number | null>(null);
+  const gpsRequest = useRef(0);
+  useEffect(() => () => { gpsRequest.current++; }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -76,6 +86,13 @@ export default function HomePage() {
   }, [language]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const initialQuery = new URLSearchParams(window.location.search).get('q')?.trim();
+    if (initialQuery) {
+      setQuery(initialQuery.slice(0, 80));
+      window.requestAnimationFrame(() => document.getElementById('services-grid')?.scrollIntoView({ block: 'start' }));
+    }
+  }, []);
   useEffect(() => {
     try {
       const saved = localStorage.getItem(HOME_LOCATION_KEY);
@@ -103,12 +120,12 @@ export default function HomePage() {
   useEffect(() => {
     if (!locationOpen || locationQuery.trim().length < 3) {
       setLocationResults([]);
-      setLocationBusy(false);
+      setLocationSearchBusy(false);
       return;
     }
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
-      setLocationBusy(true);
+      setLocationSearchBusy(true);
       setLocationMessage('');
       try {
         const response = await fetch(`/api/locations?q=${encodeURIComponent(locationQuery.trim())}`, { signal: controller.signal });
@@ -118,17 +135,19 @@ export default function HomePage() {
         if (!result.results?.length) setLocationMessage(text('No matching area found. Add your city or landmark.', 'लोकेशन नहीं मिली। शहर या लैंडमार्क भी लिखें।'));
       } catch {
         if (!controller.signal.aborted) setLocationMessage(text('Location search is unavailable. Try GPS.', 'लोकेशन सर्च उपलब्ध नहीं है। GPS आज़माएँ।'));
-      } finally { if (!controller.signal.aborted) setLocationBusy(false); }
+      } finally { if (!controller.signal.aborted) setLocationSearchBusy(false); }
     }, 450);
     return () => { window.clearTimeout(timer); controller.abort(); };
   }, [locationOpen, locationQuery, language]);
 
   const saveLocation = (next: LocationSuggestion) => {
+    gpsRequest.current++;
     setLocation(next);
-    setLocationQuery(next.label);
+    setLocationQuery('');
     setLocationOpen(false);
     setLocationResults([]);
     setLocationMessage('');
+    setGpsBusy(false);
     try { localStorage.setItem(HOME_LOCATION_KEY, JSON.stringify(next)); } catch { /* Storage may be unavailable. */ }
   };
   const locateMe = () => {
@@ -136,23 +155,58 @@ export default function HomePage() {
       setLocationMessage(text('GPS needs HTTPS or localhost. Search your area instead.', 'GPS के लिए HTTPS या localhost चाहिए। अपना एरिया खोजें।'));
       return;
     }
-    setLocationBusy(true);
+    const request = ++gpsRequest.current;
+    setLocationQuery('');
+    setLocationResults([]);
+    setGpsBusy(true);
     setLocationMessage(text('Finding your location…', 'आपकी लोकेशन खोज रहे हैं…'));
-    navigator.geolocation.getCurrentPosition(async position => {
+    const onSuccess = async (position: GeolocationPosition) => {
+      if (request !== gpsRequest.current) return;
+      const { latitude: lat, longitude: lng } = position.coords;
+      const fallback: LocationSuggestion = {
+        label: text(`Approx. location (${lat.toFixed(5)}, ${lng.toFixed(5)})`, `अनुमानित लोकेशन (${lat.toFixed(5)}, ${lng.toFixed(5)})`),
+        lat, lng, needsAddress: true,
+      };
+      let selected = fallback;
       try {
-        const { latitude: lat, longitude: lng } = position.coords;
-        const response = await fetch(`/api/locations?reverse=1&lat=${lat}&lng=${lng}`);
+        const response = await fetch(`/api/locations?reverse=1&lat=${lat}&lng=${lng}`, { signal: AbortSignal.timeout(9000) });
+        if (!response.ok) throw new Error('Reverse geocoding unavailable');
         const result = await response.json();
-        saveLocation(result.results?.[0] || { label: `${lat.toFixed(5)}, ${lng.toFixed(5)}`, lat, lng });
+        const match = result.results?.[0] as LocationSuggestion | undefined;
+        if (match?.label) {
+          const approximate = position.coords.accuracy > 150;
+          selected = { label: approximate ? text(`Near ${match.label}`, `${match.label} के आसपास`) : match.label, lat, lng, needsAddress: approximate };
+        }
+      } catch { /* Keep the coordinates even if address lookup fails. */ }
+      if (request === gpsRequest.current) saveLocation(selected);
+    };
+    const onFailure = (error: GeolocationPositionError, wasPrecise: boolean) => {
+      if (request !== gpsRequest.current) return;
+      if (error.code !== 1 && wasPrecise) {
+        setLocationMessage(text('Precise GPS unavailable. Trying nearby network location…', 'सटीक GPS नहीं मिला। नेटवर्क लोकेशन खोज रहे हैं…'));
+        getPosition(false);
+        return;
+      }
+      setGpsBusy(false);
+      setLocationMessage(error.code === 1
+        ? text('Location is blocked for this site. Allow it in your browser settings, then retry.', 'इस साइट के लिए लोकेशन बंद है। ब्राउज़र सेटिंग में अनुमति देकर दोबारा कोशिश करें।')
+        : error.code === 3
+          ? text('Location timed out. Turn on device location or search your area.', 'लोकेशन में बहुत समय लगा। डिवाइस लोकेशन चालू करें या अपना एरिया खोजें।')
+          : text('Your device could not determine its location. Turn on device location or search your area.', 'डिवाइस लोकेशन नहीं बता पाया। डिवाइस लोकेशन चालू करें या अपना एरिया खोजें।'));
+    };
+    const getPosition = (precise: boolean) => {
+      try {
+        navigator.geolocation.getCurrentPosition(onSuccess, error => onFailure(error, precise), {
+          enableHighAccuracy: precise,
+          timeout: precise ? 8000 : 12000,
+          maximumAge: precise ? 30000 : 300000,
+        });
       } catch {
-        setLocationMessage(text('Address lookup failed. Search your area manually.', 'पता नहीं मिला। अपना एरिया खोजें।'));
-      } finally { setLocationBusy(false); }
-    }, geoError => {
-      setLocationBusy(false);
-      setLocationMessage(geoError.code === 1
-        ? text('Location permission is blocked. Allow it in browser settings.', 'लोकेशन अनुमति बंद है। ब्राउज़र सेटिंग में अनुमति दें।')
-        : text('GPS could not find you. Search your area.', 'GPS लोकेशन नहीं मिली। अपना एरिया खोजें।'));
-    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
+        setGpsBusy(false);
+        setLocationMessage(text('Location is unavailable in this browser. Search your area.', 'इस ब्राउज़र में लोकेशन उपलब्ध नहीं है। अपना एरिया खोजें।'));
+      }
+    };
+    getPosition(true);
   };
 
   const filtered = useMemo(() => {
@@ -196,11 +250,6 @@ export default function HomePage() {
   };
   const showPreviousStory = () => setHeroIndex(index => { setPreviousHeroIndex(index); return (index - 1 + heroStories.length) % heroStories.length; });
   const showNextStory = () => setHeroIndex(index => { setPreviousHeroIndex(index); return (index + 1) % heroStories.length; });
-  const showStory = (nextIndex: number) => {
-    if (nextIndex === heroIndex) return;
-    setPreviousHeroIndex(heroIndex);
-    setHeroIndex(nextIndex);
-  };
   const finishStorySwipe = (clientX: number) => {
     if (heroTouchStart.current === null) return;
     const distance = clientX - heroTouchStart.current;
@@ -210,47 +259,339 @@ export default function HomePage() {
     else showNextStory();
   };
 
-  return <div className="rapid-home">
-    <section className="rapid-arrival-bar" aria-label="Service speed and location">
-      <div className="rapid-eta"><span><Zap size={14} fill="currentColor" /> {text('ARRIVAL TARGET', 'आने का लक्ष्य')}</span><strong>{text('Professional in ~20 min', 'प्रोफेशनल लगभग 20 मिनट में')}</strong><small>{text('Subject to nearby availability & traffic', 'नज़दीकी उपलब्धता और ट्रैफिक पर निर्भर')}</small></div>
-      <div className="rapid-location-wrap">
-        <button type="button" className="rapid-location-button" onClick={() => setLocationOpen(open => !open)} aria-expanded={locationOpen}><span className="rapid-location-icon"><MapPin size={19} /></span><span><small>{text('SERVICE LOCATION', 'सेवा की लोकेशन')}</small><strong>{location?.label || text('Select your area', 'अपना एरिया चुनें')}</strong></span><ArrowRight size={17} /></button>
-        {locationOpen && <div className="rapid-location-panel"><div className="rapid-location-search"><Search size={17} /><input autoFocus value={locationQuery} onChange={event => setLocationQuery(event.target.value)} placeholder={text('Search area, address or landmark', 'एरिया, पता या लैंडमार्क खोजें')} /><button type="button" onClick={() => { setLocationQuery(''); setLocationResults([]); }} aria-label="Clear location"><X size={16} /></button></div><button type="button" className="rapid-use-location" onClick={locateMe} disabled={locationBusy}><LocateFixed size={17} />{locationBusy ? text('Locating…', 'खोज रहे हैं…') : text('Use my current location', 'मेरी मौजूदा लोकेशन')}</button>{locationResults.length > 0 && <div className="rapid-location-results">{locationResults.map(item => <button type="button" key={`${item.lat}-${item.lng}`} onClick={() => saveLocation(item)}><MapPin size={15} /><span>{item.label}</span></button>)}</div>}{locationMessage && <p role="status" className="rapid-location-message">{locationMessage}</p>}{locationQuery.trim().length > 0 && locationQuery.trim().length < 3 && <p className="rapid-location-message">{text('Type at least 3 letters.', 'कम से कम 3 अक्षर लिखें।')}</p>}</div>}
+  return <div className="rapid-home reference-home">
+    {/* Top Sub-Bar: Address & Speed */}
+    <section className="reference-location" aria-label="Service speed and location">
+      <div className="flex items-center gap-3 w-full md:w-auto">
+        <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center flex-shrink-0">
+          <Zap size={20} className="fill-emerald-600 text-emerald-600" />
+        </div>
+        <div>
+          <span className="text-[10px] font-black tracking-wider text-emerald-800 uppercase block">{text('ARRIVAL TARGET', 'आने का लक्ष्य')}</span>
+          <strong className="text-sm sm:text-base font-bold text-slate-900">{text('Around 20 min arrival target', 'लगभग 20 मिनट में आने का लक्ष्य')}</strong>
+        </div>
+      </div>
+
+      <div className="relative w-full md:w-auto min-w-0 md:min-w-[280px]">
+        <button
+          type="button"
+          className="w-full flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left transition"
+          onClick={() => setLocationOpen(open => !open)}
+          aria-expanded={locationOpen}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <MapPin size={17} className="text-[#084c3e] flex-shrink-0" />
+            <div className="min-w-0">
+              <small className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider">{text('SERVICE AT', 'सेवा का पता')}</small>
+              <strong className="block text-xs font-bold text-slate-900 truncate max-w-[220px]">{location?.label || text('Select your area', 'अपना एरिया चुनें')}</strong>
+            </div>
+          </div>
+          <ArrowRight size={15} className="text-slate-400 flex-shrink-0" />
+        </button>
+
+        {locationOpen && (
+          <div className="absolute right-0 top-full mt-2 z-50 w-full sm:w-96 p-4 rounded-2xl bg-white border border-slate-200 shadow-xl">
+            <div className="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-xl bg-slate-50">
+              <Search size={16} className="text-slate-400" />
+              <input
+                autoFocus
+                value={locationQuery}
+                onChange={event => { setLocationQuery(event.target.value); setLocationMessage(''); }}
+                placeholder={text('Search area, address or landmark', 'एरिया, पता या लैंडमार्क खोजें')}
+                className="w-full bg-transparent text-xs outline-none text-slate-800"
+              />
+              {locationQuery && (
+                <button type="button" aria-label={text('Clear address search', 'पता खोज साफ़ करें')} onClick={() => { setLocationQuery(''); setLocationResults([]); setLocationMessage(''); }}>
+                  <X size={15} className="text-slate-400" />
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              className="w-full mt-2.5 py-2.5 px-3 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-bold flex items-center justify-center gap-2 hover:bg-emerald-100 transition"
+              onClick={locateMe}
+              disabled={gpsBusy}
+            >
+              <LocateFixed size={16} />
+              {gpsBusy ? text('Locating…', 'खोज रहे हैं…') : text('Use my current location', 'मेरी मौजूदा लोकेशन')}
+            </button>
+            {locationResults.length > 0 && (
+              <div className="max-h-48 overflow-y-auto mt-2 divide-y divide-slate-100">
+                {locationResults.map(item => (
+                  <button
+                    type="button"
+                    key={`${item.lat}-${item.lng}`}
+                    onClick={() => saveLocation(item)}
+                    className="w-full text-left py-2 px-1 text-xs text-slate-700 hover:text-emerald-700 flex items-start gap-2"
+                  >
+                    <MapPin size={14} className="mt-0.5 text-slate-400 flex-shrink-0" />
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {locationSearchBusy && <p role="status" className="text-[11px] text-slate-500 mt-2">{text('Searching addresses…', 'पते खोज रहे हैं…')}</p>}
+            {locationMessage && <p role="status" className="text-[11px] text-amber-700 mt-2">{locationMessage}</p>}
+          </div>
+        )}
       </div>
     </section>
 
-    <section className="rapid-hero">
-      <div className="rapid-hero-copy"><span className="rapid-kicker"><Sparkles size={15} /> {text('HOME HELP, WITHOUT THE WAIT', 'घर की मदद, बिना इंतज़ार')}</span><h1>{text('Your home,', 'आपका घर,')}<br/><em>{text('sorted in minutes.', 'मिनटों में तैयार।')}</em></h1><p>{text('Verified local professionals for repairs, maintenance and everyday help—with clear pricing and live tracking.', 'मरम्मत और रोज़मर्रा की मदद के लिए सत्यापित नज़दीकी प्रोफेशनल—स्पष्ट कीमत और लाइव ट्रैकिंग के साथ।')}</p><div className="rapid-proof"><span><ShieldCheck size={16} />{text('Verified partners', 'सत्यापित पार्टनर')}</span><span><Clock3 size={16} />{text('20-min target', '20 मिनट लक्ष्य')}</span><span><BadgeCheck size={16} />{text('Approval-first billing', 'पहले मंज़ूरी')}</span></div></div>
-      <div className="rapid-hero-visual rapid-story-carousel" role="region" aria-roledescription="carousel" aria-label={text('Professionals at work', 'काम करते प्रोफेशनल')} onMouseEnter={() => setHeroPaused(true)} onMouseLeave={() => setHeroPaused(false)} onFocusCapture={() => setHeroPaused(true)} onBlurCapture={() => setHeroPaused(false)} onTouchStart={event => { heroTouchStart.current = event.touches[0]?.clientX ?? null; }} onTouchEnd={event => { const touch = event.changedTouches[0]; if (touch) finishStorySwipe(touch.clientX); else heroTouchStart.current = null; }}>
-        <div className="rapid-story-media">{heroStories.map((story, index) => <Image key={story.slug} src={story.image} alt={index === heroIndex ? (language === 'hi' ? story.titleHi : story.titleEn) : ''} aria-hidden={index !== heroIndex} fill priority={index === 0} sizes="(max-width: 767px) 100vw, 44vw" className={index === heroIndex ? 'is-active' : index === previousHeroIndex ? 'is-leaving-left' : 'is-waiting-right'} />)}</div>
-        <div className="rapid-story-shade" />
-        <div className="rapid-story-status"><span className="online-dot" />{text('Verified professional', 'सत्यापित प्रोफेशनल')}<b>~20 min</b></div>
-        <button type="button" className="rapid-story-nav rapid-story-nav-prev" onClick={showPreviousStory} aria-label={text('Previous professional', 'पिछला प्रोफेशनल')}><ChevronLeft size={20} /></button>
-        <button type="button" className="rapid-story-nav rapid-story-nav-next" onClick={showNextStory} aria-label={text('Next professional', 'अगला प्रोफेशनल')}><ChevronRight size={20} /></button>
-        {heroStories.map((story, index) => { const Icon = story.Icon; return <div key={story.slug} className={`rapid-story-copy ${index === heroIndex ? 'is-active' : ''}`} aria-hidden={index !== heroIndex}><span className={`rapid-story-service-logo rapid-story-service-logo-${story.slug}`}><Icon size={22} strokeWidth={2.35} /></span><div><strong>{language === 'hi' ? story.titleHi : story.titleEn}</strong><p>{language === 'hi' ? story.copyHi : story.copyEn}</p></div><Link href={`/book/${story.slug}`} tabIndex={index === heroIndex ? 0 : -1} aria-label={text(`Book ${story.titleEn}`, `${story.titleHi} बुक करें`)}><ArrowRight size={18} /></Link></div>; })}
-        <div className="rapid-story-dots" aria-label={text('Choose a service story', 'सेवा की तस्वीर चुनें')}>{heroStories.map((story, index) => <button type="button" key={story.slug} className={index === heroIndex ? 'is-active' : ''} onClick={() => showStory(index)} aria-label={text(`Show ${story.titleEn}`, `${story.titleHi} दिखाएँ`)} aria-current={index === heroIndex ? 'true' : undefined} />)}</div>
+    {/* HERO SECTION (Screenshot layout with deep teal text, orange CTA, and worker visuals) */}
+    <section className="reference-hero">
+      <div className="reference-hero-copy">
+        <span className="text-[11px] font-extrabold tracking-widest text-slate-500 uppercase mb-3 block">
+          {text('HOME SERVICES, BUILT AROUND YOU', 'आपके लिए बनी घरेलू सेवाएँ')}
+        </span>
+        <h1 className="text-3xl sm:text-5xl lg:text-[52px] font-extrabold leading-[1.08] tracking-tight text-[#063b31]">
+          {text('Trusted Professionals,', 'सत्यापित प्रोफेशनल्स,')}<br />
+          <span className="text-[#084c3e]">{text('Right at Your Doorstep', 'सीधे आपके दरवाज़े पर')}</span>
+        </h1>
+        <p className="text-slate-600 text-sm sm:text-base leading-relaxed mt-4 max-w-xl">
+          {text(
+            'From urgent repairs to everyday upkeep, find local professionals, see clear prices and follow your booking from one place.',
+            'ज़रूरी मरम्मत से लेकर रोज़ की देखभाल तक, नज़दीकी प्रोफेशनल खोजें, कीमत देखें और अपनी बुकिंग ट्रैक करें।'
+          )}
+        </p>
+
+        {/* Dual Call to Action Buttons matching screenshot */}
+        <div className="flex flex-wrap items-center gap-3.5 sm:gap-4 mt-7 w-full sm:w-auto">
+          <Link
+            href="#services-grid"
+            className="btn-orange w-full sm:w-auto text-center"
+          >
+            <Calendar size={18} />
+            <span>{text('Book a Service →', 'सेवा बुक करें →')}</span>
+          </Link>
+          <Link
+            href="/login?role=WORKER"
+            className="btn-teal-outline w-full sm:w-auto text-center"
+          >
+            <Users size={18} />
+            <span>{text('Join as Professional', 'प्रोफेशनल के रूप में जुड़ें')}</span>
+          </Link>
+        </div>
+
+        {/* India Platform & Cities badges */}
+        <div className="reference-hero-facts">
+          <span className="flex items-center gap-1.5">
+            <MapPin size={15} className="text-[#084c3e]" />
+            {text('Check availability for your area', 'अपने क्षेत्र में उपलब्धता देखें')}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="text-base leading-none">🇮🇳</span>
+            {text('A Made for India Platform', 'मेड फॉर इंडिया प्लेटफॉर्म')}
+          </span>
+        </div>
+      </div>
+
+      {/* Right Hero Story Visual */}
+      <div className="reference-hero-visual" role="region" aria-roledescription="carousel" aria-label={text('Professionals at work', 'काम करते प्रोफेशनल')} onMouseEnter={() => setHeroPaused(true)} onMouseLeave={() => setHeroPaused(false)} onTouchStart={event => { heroTouchStart.current = event.touches[0]?.clientX ?? null; }} onTouchEnd={event => { const touch = event.changedTouches[0]; if (touch) finishStorySwipe(touch.clientX); else heroTouchStart.current = null; }}>
+        <div className="reference-hero-media">
+          {heroStories.map((story, index) => (
+            <Image
+              key={story.slug}
+              src={story.image}
+              alt={index === heroIndex ? (language === 'hi' ? story.titleHi : story.titleEn) : ''}
+              fill
+              priority={index === 0}
+              sizes="(max-width: 767px) 100vw, 50vw"
+              aria-hidden={index !== heroIndex}
+              className={index === heroIndex ? 'is-active' : index === previousHeroIndex ? 'is-leaving-left' : 'is-waiting-right'}
+            />
+          ))}
+        </div>
+        <div className="reference-hero-shade" />
+
+        {/* Informational caption; photos rotate automatically and support touch swipe. */}
+        <div className="reference-story-info">
+          <div>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/20 backdrop-blur text-[10px] font-bold text-emerald-300 mb-1">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              {text('Service professional', 'सर्विस प्रोफेशनल')}
+            </span>
+            <strong className="block text-sm font-bold">
+              {language === 'hi' ? heroStories[heroIndex].titleHi : heroStories[heroIndex].titleEn}
+            </strong>
+          </div>
+        </div>
+        <div className="reference-story-dots" aria-hidden="true">{heroStories.map((story, index) => <span key={story.slug} className={index === heroIndex ? 'is-active' : ''} />)}</div>
       </div>
     </section>
 
-    <section className="rapid-smart-search" aria-label="Search services"><Search size={22} /><input aria-label="Search services" value={query} onChange={event => { setQuery(event.target.value); setSearchMessage(''); }} onKeyDown={event => { if (event.key === 'Enter') submitSearch(); }} placeholder={text(`Search “${rotatingSearches[searchIndex]}”`, `“${rotatingSearches[searchIndex]}” खोजें`)} /><button type="button" onClick={startVoiceSearch} className={listening ? 'is-listening' : ''} aria-label="Search by voice"><Mic size={21} /></button>{query && <button type="button" onClick={() => setQuery('')} aria-label="Clear search"><X size={20} /></button>}</section>
-    {searchMessage && <p className="rapid-search-message" role="status">{searchMessage}</p>}
-    {query && <div className="rapid-suggestions">{filtered.slice(0, 5).map(service => { const Icon = serviceMeta[service.slug]?.Icon || Wrench; return <Link href={`/book/${service.slug}`} key={service.id}><Icon size={18} /><span><b>{language === 'hi' ? service.nameHi : service.nameEn}</b><small>{serviceMeta[service.slug]?.description}</small></span><ArrowRight size={16} /></Link>; })}{!filtered.length && <p>{text('No exact match. Try plumber, electrician or AC.', 'सेवा नहीं मिली। प्लंबर, इलेक्ट्रीशियन या AC खोजें।')}</p>}</div>}
-    <div className="rapid-search-chips" aria-label="Popular searches"><span>{text('Popular:', 'लोकप्रिय:')}</span>{['AC repair', 'Plumber', 'Electrician', 'Puncture'].map(term => <button type="button" key={term} onClick={() => { setQuery(term); window.setTimeout(() => document.getElementById('quick-book')?.scrollIntoView({ behavior: 'smooth' }), 0); }}>{term}</button>)}</div>
+    <section className="trust-bar-container" aria-label="Why choose ServZest">
+      <div className="trust-item">
+        <div className="trust-icon-badge">
+          <CheckCircle2 size={22} />
+        </div>
+        <div className="trust-text">
+          <strong>{text('Reviewed professionals', 'समीक्षित प्रोफेशनल्स')}</strong>
+          <span>{text('Admin approval before jobs', 'काम से पहले एडमिन मंज़ूरी')}</span>
+        </div>
+      </div>
 
-    <section id="services-grid" className="rapid-section rapid-categories"><div className="rapid-section-head"><div><span>{text('SERVICES', 'सेवाएँ')}</span><h2>{text('What do you need help with?', 'आज किस काम में मदद चाहिए?')}</h2></div><small>{text('Tap to see transparent rates', 'स्पष्ट कीमत देखने के लिए चुनें')}</small></div>{loading && <div className="rapid-category-grid" aria-label="Loading services">{Array.from({ length: 5 }, (_, index) => <div className="rapid-category-skeleton" key={index} />)}</div>}{error && <div className="rapid-state" role="alert"><p>{error}</p><button onClick={load}>{text('Try again', 'दोबारा कोशिश करें')}</button></div>}{!loading && !error && <div className="rapid-category-grid">{services.map((service, index) => { const Icon = serviceMeta[service.slug]?.Icon || Wrench; return <Link href={`/book/${service.slug}`} key={service.id} className={`rapid-category rapid-category-${(index % 5) + 1}`}><span><Icon size={27} /></span><b>{language === 'hi' ? service.nameHi : service.nameEn}</b><small>{text(serviceMeta[service.slug]?.description || 'Home service', serviceMeta[service.slug]?.hindi || 'घरेलू सेवा')}</small></Link>; })}</div>}</section>
+      <div className="trust-item">
+        <div className="trust-icon-badge">
+          <IndianRupee size={22} />
+        </div>
+        <div className="trust-text">
+          <strong>{text('Transparent Pricing', 'पारदर्शी दरें')}</strong>
+          <span>{text('Approve extras before work', 'अतिरिक्त काम को पहले मंज़ूरी')}</span>
+        </div>
+      </div>
 
-    <section className="rapid-offer"><div><span className="rapid-offer-tag">WELCOME50</span><h2>{text('₹50 off your first booking', 'पहली बुकिंग पर ₹50 की बचत')}</h2><p>{text('Use the code at checkout. Final price stays in your control.', 'चेकआउट पर कोड लगाएँ। अंतिम कीमत आपकी मंज़ूरी से तय होगी।')}</p></div><Link href={services[0] ? `/book/${services[0].slug}` : '#services-grid'}>{text('Explore services', 'सेवाएँ देखें')}<ArrowRight size={18} /></Link><div className="rapid-offer-shape" aria-hidden="true"><Sparkles size={40} /></div></section>
+      <div className="trust-item">
+        <div className="trust-icon-badge">
+          <Zap size={22} />
+        </div>
+        <div className="trust-text">
+          <strong>{text('Quick Service', 'त्वरित सेवा')}</strong>
+          <span>{text('Arrival estimate after matching', 'मैच के बाद आने का अनुमान')}</span>
+        </div>
+      </div>
 
-    <section className="rapid-campaign-section"><div className="rapid-section-head"><div><span>{text('MADE FOR RIGHT NOW', 'आज की ज़रूरत')}</span><h2>{text('Popular around your home', 'आपके घर के आसपास लोकप्रिय')}</h2></div><small>{text('Swipe to explore', 'देखने के लिए स्वाइप करें')}</small></div><div className="rapid-campaign-row">
-      {[{ slug: 'ac', Icon: AirVent, eyebrow: text('SEASON READY', 'मौसम के लिए तैयार'), title: text('Fresh cooling, without the wait', 'बिना इंतज़ार बेहतर कूलिंग'), copy: text('AC diagnosis and service from ₹199', 'AC जाँच और सर्विस ₹199 से'), action: text('Book AC care', 'AC सेवा बुक करें'), tone: 'mint' }, { slug: 'plumber', Icon: Wrench, eyebrow: text('QUICK FIX', 'तुरंत मरम्मत'), title: text('Stop leaks before they spread', 'लीकेज को तुरंत रोकें'), copy: text('Taps, pipes and fittings at home', 'नल, पाइप और फिटिंग की सेवा'), action: text('Find a plumber', 'प्लंबर बुलाएँ'), tone: 'blue' }, { slug: 'electrician', Icon: Zap, eyebrow: text('SAFE HOME', 'सुरक्षित घर'), title: text('Power problems, sorted safely', 'बिजली की समस्या सुरक्षित तरीके से'), copy: text('Switch, fan and wiring assistance', 'स्विच, पंखा और वायरिंग सहायता'), action: text('Book electrician', 'इलेक्ट्रीशियन बुक करें'), tone: 'yellow' }, { slug: 'mechanic', Icon: Bike, eyebrow: text('ROADSIDE HELP', 'रोडसाइड मदद'), title: text('Stuck outside? Help is nearby', 'रास्ते में फँसे? मदद नज़दीक है'), copy: text('Puncture, jump-start and towing', 'पंचर, जंप-स्टार्ट और टोइंग'), action: text('Get roadside help', 'रोडसाइड मदद लें'), tone: 'coral' }].map(({ slug, Icon, eyebrow, title, copy, action, tone }) => <Link href={`/book/${slug}`} key={slug} className={`rapid-campaign rapid-campaign-${tone}`}><div><span>{eyebrow}</span><h3>{title}</h3><p>{copy}</p><b>{action}<ArrowRight size={15} /></b></div><span className="rapid-campaign-art"><Icon size={43} /></span></Link>)}
-    </div></section>
+      <div className="trust-item">
+        <div className="trust-icon-badge">
+          <CreditCard size={22} />
+        </div>
+        <div className="trust-text">
+          <strong>{text('Flexible payment', 'आसान भुगतान')}</strong>
+          <span>{text('Cash or professional UPI QR', 'नकद या प्रोफेशनल UPI QR')}</span>
+        </div>
+      </div>
+    </section>
 
-    {repeatBookings.length > 0 && <section className="rapid-section"><div className="rapid-section-head"><div><span>{text('YOUR FAVOURITES', 'आपकी पसंद')}</span><h2>{text('Book again', 'फिर से बुक करें')}</h2></div><Link href="/history">{text('View history', 'हिस्ट्री देखें')}<ArrowRight size={15} /></Link></div><div className="rapid-rebook-row">{repeatBookings.map(booking => { const service = booking.service!; const Icon = serviceMeta[service.slug]?.Icon || Wrench; return <article key={booking.id}><span className="rapid-rebook-icon"><Icon size={22} /></span><div><b>{language === 'hi' ? service.nameHi : service.nameEn}</b><small>{booking.worker?.user?.name || text('Verified professional', 'सत्यापित प्रोफेशनल')}</small></div><Link href={`/book/${service.slug}?rebook=${booking.id}`}>{text('Book again', 'फिर बुक करें')}</Link></article>; })}</div></section>}
+    <section id="services-grid" className="reference-services">
+      <div className="reference-section-heading">
+        <div>
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-[#063b31] tracking-tight">
+            {text('Our Services', 'हमारी सेवाएँ')}
+          </h2>
+          <p className="text-slate-500 text-xs sm:text-sm mt-1">
+            {text('Professional help for every need, at your fingertips.', 'हर ज़रूरत के लिए प्रोफेशनल मदद, सीधे आपके फोन पर।')}
+          </p>
+        </div>
+        {!loading && !error && services.length > 0 && <span>{text(`${services.length} services to explore`, `${services.length} सेवाएँ देखें`)}</span>}
+      </div>
 
-    <section id="quick-book" className="rapid-section rapid-quick"><div className="rapid-section-head"><div><span>{text('AVAILABLE SERVICES', 'उपलब्ध सेवाएँ')}</span><h2>{text(query ? `Results for “${query}”` : 'Quick book near you', query ? `“${query}” के परिणाम` : 'नज़दीकी सेवा तुरंत बुक करें')}</h2></div><small>{text('Live availability can change', 'उपलब्धता बदल सकती है')}</small></div>{!loading && !error && <div className="rapid-service-grid">{filtered.map(service => { const meta = serviceMeta[service.slug]; const Icon = meta?.Icon || Wrench; const market = service.market; return <article key={service.id} className="rapid-service-card"><div className="rapid-service-card-top"><span className="rapid-service-icon"><Icon size={27} /></span>{market && market.onlineWorkers > 0 ? <span className="rapid-live"><i />{market.onlineWorkers} {text('online', 'ऑनलाइन')}</span> : <span className="rapid-neutral">{text('Check availability', 'उपलब्धता देखें')}</span>}</div><h3>{language === 'hi' ? service.nameHi : service.nameEn}</h3><p>{text(meta?.description || 'Trusted help for your home', meta?.hindi || 'आपके घर के लिए भरोसेमंद मदद')}</p><div className="rapid-service-badges"><span><Clock3 size={13} />~20 min target</span>{market?.averageRating ? <span><Star size={13} fill="currentColor" />{market.averageRating.toFixed(1)} ({market.reviewCount})</span> : <span><BadgeCheck size={13} />Verified</span>}</div><div className="rapid-service-footer"><span><small>{text('Visit from', 'विज़िट शुल्क')}</small><b>₹{Number(service.visitCharge).toLocaleString('en-IN')}</b></span><Link href={`/book/${service.slug}`}>{text('Book', 'बुक करें')}<ArrowRight size={15} /></Link></div></article>; })}</div>}{!loading && !error && !filtered.length && <div className="rapid-state"><p>{text('No matching service found.', 'मिलती हुई सेवा नहीं मिली।')}</p><button onClick={() => setQuery('')}>{text('Show all services', 'सभी सेवाएँ देखें')}</button></div>}</section>
+      <div className="reference-service-search" role="search">
+        <Search size={19} aria-hidden="true" />
+        <input aria-label={text('Search services', 'सेवा खोजें')} value={query} onChange={event => { setQuery(event.target.value); setSearchMessage(''); }} onKeyDown={event => { if (event.key === 'Enter') submitSearch(); }} placeholder={text(`Search “${rotatingSearches[searchIndex]}”`, `“${rotatingSearches[searchIndex]}” खोजें`)} />
+        {query && <button type="button" onClick={() => setQuery('')} aria-label={text('Clear search', 'खोज हटाएँ')}><X size={18} /></button>}
+        <button type="button" onClick={startVoiceSearch} className={listening ? 'is-listening' : ''} aria-label={text('Search by voice', 'बोलकर खोजें')}><Mic size={18} /></button>
+      </div>
+      {searchMessage && <p role="status" className="reference-search-message">{searchMessage}</p>}
+      {query && filtered.length > 0 && <div className="reference-search-suggestions" aria-label={text('Search suggestions', 'खोज सुझाव')}>{filtered.slice(0, 5).map(service => <Link key={service.id} href={`/book/${service.slug}`}>{language === 'hi' ? service.nameHi : service.nameEn}<ArrowRight size={15} /></Link>)}</div>}
 
-    <section className="rapid-assurance"><div><ShieldCheck size={24} /><span><b>{text('Your approval comes first', 'आपकी मंज़ूरी सबसे पहले')}</b><small>{text('Extra work and parts are added only after you approve them.', 'अतिरिक्त काम और पार्ट्स आपकी मंज़ूरी के बाद ही जुड़ेंगे।')}</small></span></div><div><Headphones size={24} /><span><b>{text('Support through every booking', 'हर बुकिंग में सहायता')}</b><small>{text('Track, pay, rate or report an issue from one place.', 'एक ही जगह ट्रैक, भुगतान, रेटिंग या शिकायत करें।')}</small></span></div><Link href="/contact">{text('Get help', 'मदद लें')}<ArrowRight size={16} /></Link></section>
-    <section className="rapid-partner"><div><span>{text('SERVZEST PARTNER', 'SERVZEST पार्टनर')}</span><h2>{text('Turn your skill into steady work.', 'अपने हुनर को नियमित काम में बदलें।')}</h2><p>{text('Verified professionals can receive nearby jobs, manage earnings and build their reputation.', 'सत्यापित प्रोफेशनल नज़दीकी काम, कमाई और अपनी रेटिंग मैनेज कर सकते हैं।')}</p></div><Link href="/login?role=WORKER">{text('Join as a professional', 'प्रोफेशनल के रूप में जुड़ें')}<ArrowRight size={17} /></Link></section>
-    {showTop && <button type="button" className="rapid-back-top" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><ArrowUp size={17} /><span>{text('Top', 'ऊपर')}</span></button>}
+      {loading && (
+        <div className="reference-service-grid">
+          {Array.from({ length: 6 }, (_, index) => (
+            <div key={index} className="h-44 bg-slate-100 rounded-2xl animate-pulse" />
+          ))}
+        </div>
+      )}
+
+      {error && (
+        <div className="reference-service-notice" role="status">
+          <p>{text('Bookings are temporarily unavailable. Browse our service categories while we reconnect.', 'बुकिंग अभी उपलब्ध नहीं है। दोबारा जुड़ने तक हमारी सेवाएँ देखें।')}</p>
+          <button type="button" onClick={load}>
+            {text('Try again', 'दोबारा कोशिश करें')}
+          </button>
+        </div>
+      )}
+
+      {error && (
+        <div className="reference-service-grid">
+          {servicePreview.filter(service => `${service.nameEn} ${service.nameHi} ${serviceMeta[service.slug].description}`.toLowerCase().includes(query.trim().toLowerCase())).map(service => {
+            const Icon = serviceMeta[service.slug].Icon;
+            return <div key={service.slug} className="services-card reference-service-preview">
+              <div className="reference-card-head">
+                <div className={`service-icon-box service-icon-${service.slug === 'majdoor' ? 'cleaning' : service.slug === 'ac' ? 'ac' : service.slug}`}><Icon size={25} strokeWidth={2.2} /></div>
+                <div><h3>{language === 'hi' ? service.nameHi : service.nameEn}</h3><p>{text(serviceMeta[service.slug].description, serviceMeta[service.slug].hindi)}</p></div>
+              </div>
+              <div className="reference-card-foot"><span className="service-available-badge is-neutral">{text('Booking paused', 'बुकिंग रुकी है')}</span></div>
+            </div>;
+          })}
+        </div>
+      )}
+
+      {!loading && !error && (
+        <div className="reference-service-grid">
+          {filtered.map(service => {
+            const slug = service.slug;
+            const Icon = serviceMeta[slug]?.Icon || Wrench;
+            const iconClass =
+              slug === 'electrician' ? 'service-icon-electrician' :
+              slug === 'plumber' ? 'service-icon-plumber' :
+              slug === 'majdoor' ? 'service-icon-cleaning' :
+              slug === 'ac' ? 'service-icon-ac' :
+              'service-icon-mechanic';
+
+            return (
+              <Link
+                href={`/book/${service.slug}`}
+                key={service.id}
+                className="services-card group"
+              >
+                <div className="reference-card-head">
+                  <div className={`service-icon-box ${iconClass}`}>
+                    <Icon size={26} strokeWidth={2.2} />
+                  </div>
+                  <div><h3>{language === 'hi' ? service.nameHi : service.nameEn}</h3><p>{text(serviceMeta[slug]?.description || 'Home maintenance and repair.', serviceMeta[slug]?.hindi || 'घरेलू मरम्मत एवं देखभाल।')}</p></div>
+                </div>
+                <div className="reference-card-foot">
+                  <span className={`service-available-badge ${service.market?.onlineWorkers ? '' : 'is-neutral'}`}>
+                    <span className="service-available-dot" />
+                    {service.market?.onlineWorkers ? text(`${service.market.onlineWorkers} online`, `${service.market.onlineWorkers} ऑनलाइन`) : text('Check availability', 'उपलब्धता देखें')}
+                  </span>
+                  <span className="reference-service-price">{text('Visit from', 'विज़िट शुल्क')} <b>₹{Number(service.visitCharge).toLocaleString('en-IN')}</b></span>
+                  <div className="service-arrow-btn">
+                    <ArrowRight size={16} />
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+      {!loading && !error && filtered.length === 0 && <div className="reference-empty-search"><p>{text('No matching service found.', 'मिलती हुई सेवा नहीं मिली।')}</p><button type="button" onClick={() => setQuery('')}>{text('Show all services', 'सभी सेवाएँ देखें')}</button></div>}
+    </section>
+
+    {repeatBookings.length > 0 && <section className="reference-rebook"><div className="reference-section-heading"><div><h2>{text('Book again', 'फिर से बुक करें')}</h2><p>{text('Pick up where you left off with a previous service.', 'अपनी पिछली सेवा को आसानी से फिर चुनें।')}</p></div><Link href="/history">{text('View history', 'हिस्ट्री देखें')} <ArrowRight size={16} /></Link></div><div className="reference-rebook-grid">{repeatBookings.map(booking => { const service = booking.service!; const Icon = serviceMeta[service.slug]?.Icon || Wrench; return <Link key={booking.id} href={`/book/${service.slug}?rebook=${booking.id}`}><Icon size={20} /><span><b>{language === 'hi' ? service.nameHi : service.nameEn}</b><small>{text('Review details and book again', 'जानकारी जाँचकर फिर बुक करें')}</small></span><ArrowRight size={17} /></Link>; })}</div></section>}
+
+    {/* Special Offer Banner */}
+    <section className="bg-gradient-to-r from-[#084c3e] to-[#0a6352] text-white rounded-3xl p-6 sm:p-8 mt-10 flex flex-col sm:flex-row items-center justify-between gap-6 shadow-md">
+      <div>
+        <span className="inline-block px-3 py-1 bg-[#f97316] text-white font-black text-[10px] rounded-md tracking-wider uppercase">
+          WELCOME50
+        </span>
+        <h3 className="text-xl sm:text-2xl font-extrabold mt-2">
+          {text('₹50 OFF on your first booking', 'अपनी पहली बुकिंग पर ₹50 की छूट')}
+        </h3>
+        <p className="text-xs text-emerald-100 mt-1">
+          {text('Use code WELCOME50 at checkout. Instant discounts with transparent prices.', 'चेकआउट पर WELCOME50 कोड का उपयोग करें।')}
+        </p>
+      </div>
+      <Link
+        href={services[0] ? `/book/${services[0].slug}` : '#services-grid'}
+        className="btn-orange flex-shrink-0"
+      >
+        <span>{text('Claim Discount', 'छूट का लाभ लें')}</span>
+        <ArrowRight size={16} />
+      </Link>
+    </section>
+
+    {/* Back to top floating button */}
+    {showTop && (
+      <button
+        type="button"
+        className="fixed right-6 bottom-6 z-40 bg-[#084c3e] text-white p-3 rounded-full shadow-xl hover:bg-[#063b31] transition flex items-center gap-1.5 text-xs font-bold"
+        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        aria-label="Back to top"
+      >
+        <ArrowUp size={16} />
+        <span>Top</span>
+      </button>
+    )}
   </div>;
 }
