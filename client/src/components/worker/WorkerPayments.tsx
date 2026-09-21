@@ -1,0 +1,16 @@
+'use client';
+import { useState } from 'react';
+import { api } from '../../lib/api';
+import { useFeedback } from '../../context/FeedbackContext';
+export function WorkerPayments({ profile, earnings, refresh }: { profile: any; earnings: any; refresh: () => void }) {
+  const { confirmAction, notify } = useFeedback();
+  const [upiId, setUpiId] = useState(profile?.upiId || '');
+  const [upiName, setUpiName] = useState(profile?.upiName || profile?.user?.name || '');
+  const [busy, setBusy] = useState(false); const [message, setMessage] = useState('');
+  const run = async (fn: () => Promise<any>) => { setBusy(true); setMessage(''); try { const result = await fn(); if (!result.success) throw new Error(result.message); setMessage('Saved successfully.'); refresh(); } catch (e: any) { setMessage(e.message); } finally { setBusy(false); } };
+  return <section className="p-5 border bg-white rounded-2xl space-y-5"><h2 className="font-bold text-lg">UPI & payment receipts</h2><form className="grid sm:grid-cols-2 gap-3" onSubmit={e => { e.preventDefault(); void run(() => api.saveWorkerUpi({ upiId, upiName })); }}><label className="text-sm">Your UPI ID<input required value={upiId} onChange={e => setUpiId(e.target.value)} placeholder="name@bank" className="border rounded-xl p-3 w-full mt-1" /></label><label className="text-sm">UPI recipient name<input required value={upiName} onChange={e => setUpiName(e.target.value)} className="border rounded-xl p-3 w-full mt-1" /></label><button disabled={busy} className="bg-brand-600 text-white rounded-xl p-3 disabled:opacity-50">Save payment details</button><p className="text-xs text-slate-500">Use your own account. Customers see this name and UPI ID on the final bill QR.</p></form>
+    <p className="text-sm">Awaiting collection / confirmation: <b>₹{earnings?.pendingAmount || 0}</b></p>
+    {earnings?.pendingReceipts?.map((booking: any) => <div key={booking.id} className="border rounded-xl p-4 space-y-2"><p className="font-bold">{booking.service.nameEn} · ₹{booking.totalAmount}</p><p className="text-sm">{booking.customer.name} · {booking.pickupAddress}</p>{booking.payment?.reportedAt ? <><p className="text-sm">Customer reported {booking.payment.method}{booking.payment.transactionRef ? ` · Reference ${booking.payment.transactionRef}` : ''}</p><p className="text-xs text-amber-800">Confirm only after checking cash in hand or credit in your own bank / UPI app.</p><div className="flex gap-3"><button disabled={busy} onClick={async () => { const approved = await confirmAction({ title: 'Confirm payment received', message: `Verify that ₹${booking.totalAmount} reached you before closing this receipt.`, confirmLabel: 'Money received' }); if (approved) { await run(() => api.confirmReceipt(booking.id, 'CONFIRM')); notify('Receipt confirmed successfully.', 'success'); } }} className="px-4 py-2 bg-emerald-600 text-white rounded-xl">Money received</button><button disabled={busy} onClick={() => run(() => api.confirmReceipt(booking.id, 'REJECT'))} className="px-4 py-2 border rounded-xl">Not received</button></div></> : <p className="text-sm text-slate-500">Waiting for customer to report cash or UPI payment.</p>}</div>)}
+    {message && <p role="status" className="text-sm">{message}</p>}
+  </section>;
+}

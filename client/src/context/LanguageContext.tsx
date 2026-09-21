@@ -16,7 +16,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [language, setLanguageState] = useState<Language>('en');
 
   useEffect(() => {
-    const saved = localStorage.getItem('quickkaam_lang') as Language;
+    const saved = (localStorage.getItem('servzest_lang') || localStorage.getItem('quickkaam_lang')) as Language;
     if (saved && (saved === 'en' || saved === 'hi')) {
       setLanguageState(saved);
     }
@@ -24,7 +24,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
-    localStorage.setItem('quickkaam_lang', lang);
+    localStorage.setItem('servzest_lang', lang);
   };
 
   const toggleLanguage = () => {

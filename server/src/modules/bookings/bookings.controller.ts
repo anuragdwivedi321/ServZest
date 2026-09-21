@@ -1,3 +1,7 @@
+import { randomInt } from 'crypto';
+import { getRoadRoute } from '../../services/road-route.service';
+import { checkoutSchema, checkoutQuote, bookingPricingInput } from '../../services/checkout.service';
+import { dispatchBooking } from '../../services/booking-dispatch.service';
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../db/prisma';
@@ -6,21 +10,19 @@ import { dispatchService } from '../../services/dispatch.service';
 import { getSocketServer } from '../../sockets/socket.server';
 import { BookingStatus, ApprovalStatus, PaymentMethod, PaymentStatus, Role } from '@prisma/client';
 
-export const estimatePriceSchema = z.object({
-  serviceId: z.string().uuid(),
-  serviceItemsTotal: z.number().optional(),
-  partsTotal: z.number().optional(),
-});
-
-export const createBookingSchema = z.object({
-  serviceId: z.string().uuid(),
-  pickupLat: z.number(),
-  pickupLng: z.number(),
-  pickupAddress: z.string().min(3),
+export const estimatePriceSchema = checkoutSchema;
+export const createBookingSchema = checkoutSchema.extend({
+  pickupLat: z.number().min(-90).max(90),
+  pickupLng: z.number().min(-180).max(180),
+  pickupAddress: z.string().trim().min(8).max(500),
+  problemDescription: z.string().trim().max(1000).optional(),
+  locationConfirmed: z.literal(true),
+  requestKey: z.string().uuid(),
+  acceptedTotal: z.number().nonnegative(),
 });
 
 export const cancelBookingSchema = z.object({
-  reason: z.string().optional(),
+  reason: z.string().trim().max(1000).optional(),
 });
 
 export const approveItemSchema = z.object({
@@ -34,110 +36,61 @@ export const payBillSchema = z.object({
 });
 
 export const rateBookingSchema = z.object({
-  stars: z.number().min(1).max(5),
-  comment: z.string().optional(),
+  stars: z.number().int().min(1).max(5),
+  comment: z.string().trim().max(2000).optional(),
 });
 
 export const reportComplaintSchema = z.object({
-  issue: z.string().min(5),
+  issue: z.string().trim().min(5).max(3000),
 });
 
 export const estimatePrice = async (req: Request, res: Response) => {
-  const { serviceId, serviceItemsTotal, partsTotal } = req.body;
-
-  const service = await prisma.service.findUnique({ where: { id: serviceId } });
-  if (!service) {
-    return res.status(404).json({ success: false, message: 'Service not found' });
+  try {
+    const quote = await checkoutQuote(req.body, req.user?.id);
+    return res.json({ success: true, bill: quote.bill });
+  } catch (error: any) {
+    return res.status(error.status || 500).json({ success: false, message: error.status ? error.message : 'Could not calculate price. Please retry.' });
   }
-
-  const bill = await pricingService.calculateBill({
-    baseVisitCharge: service.visitCharge,
-    serviceItemsTotal,
-    partsTotal,
-  });
-
-  return res.status(200).json({ success: true, bill });
 };
 
 export const createBooking = async (req: Request, res: Response) => {
   const customerId = req.user!.id;
-  const { serviceId, pickupLat, pickupLng, pickupAddress } = req.body;
-
-  const service = await prisma.service.findUnique({ where: { id: serviceId } });
-  if (!service) {
-    return res.status(404).json({ success: false, message: 'Service not found' });
+  const input = req.body;
+  try {
+    const booking = await prisma.$transaction(async tx => {
+      // Serialize this customer's coupon use and repeated checkout requests.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${customerId}))`;
+      const existing = await tx.booking.findUnique({ where: { requestKey: input.requestKey } });
+      if (existing) {
+        if (existing.customerId !== customerId) throw Object.assign(new Error('Invalid booking request.'), { status: 409 });
+        return existing;
+      }
+      const quote = await checkoutQuote(input, customerId, tx);
+      if (Math.abs(quote.bill.totalAmount - input.acceptedTotal) > 0.01) {
+        throw Object.assign(new Error('Price changed. Refresh the estimate and confirm again.'), { status: 409 });
+      }
+      return tx.booking.create({ data: {
+        customerId, serviceId: input.serviceId, pickupLat: input.pickupLat, pickupLng: input.pickupLng,
+        pickupAddress: input.pickupAddress, problemDescription: input.problemDescription,
+        requestKey: input.requestKey, scheduledAt: quote.scheduledAt,
+        couponCode: input.couponCode || null, discountAmount: quote.bill.discountAmount,
+        startOtp: randomInt(1000, 10000).toString(),
+        status: quote.scheduledAt ? BookingStatus.SCHEDULED : BookingStatus.SEARCHING,
+        baseVisitCharge: quote.bill.baseVisitCharge, serviceTotal: quote.bill.serviceTotal,
+        totalAmount: quote.bill.totalAmount, platformFee: quote.bill.platformFee,
+        nightSurgeRate: quote.bill.nightSurgeRate, rushSurgeRate: quote.bill.rushSurgeRate,
+        pricingSnapshot: { nightSurgeRate: quote.bill.nightSurgeRate, rushSurgeRate: quote.bill.rushSurgeRate, commissionPct: quote.bill.commissionPct },
+        items: { create: quote.selectedItems },
+      } });
+    }, { timeout: 20000 });
+    if (booking.status === BookingStatus.SEARCHING && !dispatchService.hasSession(booking.id)) {
+      void dispatchBooking(booking.id).catch(error => console.error('Dispatch failed:', error));
+    }
+    return res.status(201).json({ success: true, booking });
+  } catch (error: any) {
+    console.error('Checkout:', error.message);
+    return res.status(error.status || 500).json({ success: false, message: error.status ? error.message : 'Booking could not be saved. Please retry.' });
   }
-
-  // Generate 4-digit start OTP
-  const startOtp = Math.floor(1000 + Math.random() * 9000).toString();
-
-  // Create booking in SEARCHING state
-  const booking = await prisma.booking.create({
-    data: {
-      customerId,
-      serviceId,
-      pickupLat,
-      pickupLng,
-      pickupAddress,
-      startOtp,
-      baseVisitCharge: service.visitCharge,
-      status: BookingStatus.SEARCHING,
-    },
-    include: {
-      service: true,
-      customer: { select: { id: true, name: true, phone: true } },
-    },
-  });
-
-  // Trigger dispatch engine asynchronously
-  const io = getSocketServer();
-
-  dispatchService.startDispatch(booking.id, serviceId, pickupLat, pickupLng, {
-    onWorkerRequested: (worker, timeoutSec) => {
-      if (io) {
-        io.to(`worker_${worker.id}`).emit('worker:new_request', {
-          bookingId: booking.id,
-          serviceName: service.nameEn,
-          serviceNameHi: service.nameHi,
-          pickupAddress,
-          distanceMeters: worker.straightDistanceMeters,
-          roadDistanceKm: worker.roadDistanceKm,
-          etaMinutes: worker.etaMinutes,
-          baseVisitCharge: service.visitCharge,
-          timeoutSec,
-        });
-      }
-    },
-    onDispatchExhausted: async () => {
-      console.log(`[BookingsController] Dispatch exhausted for booking ${booking.id}`);
-      if (io) {
-        io.to(`booking_${booking.id}`).emit('booking:status_update', {
-          bookingId: booking.id,
-          status: BookingStatus.SEARCHING,
-          message: 'No worker currently available. You may retry or wait.',
-          exhausted: true,
-        });
-      }
-    },
-    onWorkerAssigned: async (worker) => {
-      console.log(`[BookingsController] Worker ${worker.id} assigned to booking ${booking.id}`);
-      if (io) {
-        io.to(`booking_${booking.id}`).emit('booking:status_update', {
-          bookingId: booking.id,
-          status: BookingStatus.ASSIGNED,
-          worker: {
-            id: worker.id,
-            name: worker.name,
-            phone: worker.phone,
-            rating: worker.rating,
-          },
-          etaMinutes: worker.etaMinutes,
-        });
-      }
-    },
-  });
-
-  return res.status(201).json({ success: true, booking });
 };
 
 export const getBooking = async (req: Request, res: Response) => {
@@ -148,11 +101,7 @@ export const getBooking = async (req: Request, res: Response) => {
     include: {
       service: true,
       customer: { select: { id: true, name: true, phone: true } },
-      worker: {
-        include: {
-          user: { select: { name: true, phone: true } },
-        },
-      },
+      worker: { select: { id: true, photoUrl: true, rating: true, totalRatings: true, vehicleType: true, user: { select: { name: true, phone: true } } } },
       items: true,
       payment: true,
       rating: true,
@@ -162,6 +111,8 @@ export const getBooking = async (req: Request, res: Response) => {
   if (!booking) {
     return res.status(404).json({ success: false, message: 'Booking not found' });
   }
+
+  if (booking.customerId !== req.user!.id && req.user!.role !== Role.ADMIN) return res.status(403).json({ success: false, message: 'This booking belongs to another customer.' });
 
   // Calculate live bill breakdown
   const approvedItems = booking.items.filter((i) => i.approvalStatus === ApprovalStatus.APPROVED);
@@ -176,173 +127,28 @@ export const getBooking = async (req: Request, res: Response) => {
     baseVisitCharge: booking.baseVisitCharge,
     serviceItemsTotal: serviceTotal,
     partsTotal: partsTotal,
-    bookingTime: booking.createdAt,
+    ...bookingPricingInput(booking),
   });
 
-  return res.status(200).json({ success: true, booking, bill });
+  let workerLocation = null;
+  if (booking.workerId && ['ASSIGNED', 'EN_ROUTE', 'ARRIVED'].includes(booking.status)) {
+    const rows = await prisma.$queryRaw<Array<{ lat: number; lng: number; updatedAt: Date; distance: number }>>`
+      SELECT ST_Y(current_location::geometry) AS lat, ST_X(current_location::geometry) AS lng,
+      last_location_at AS "updatedAt", ST_Distance(current_location,
+      ST_SetSRID(ST_MakePoint(${booking.pickupLng}, ${booking.pickupLat}), 4326)::geography) AS distance
+      FROM worker_profiles WHERE id = ${booking.workerId} AND current_location IS NOT NULL
+      AND last_location_at > NOW() - INTERVAL '2 minutes'`;
+    if (rows[0]) {
+      const route = await getRoadRoute([rows[0].lat, rows[0].lng], [booking.pickupLat, booking.pickupLng]);
+      workerLocation = { lat: rows[0].lat, lng: rows[0].lng, updatedAt: rows[0].updatedAt, distanceMeters: rows[0].distance,
+        ...dispatchService.calculateEta(rows[0].distance), route,
+        ...(route ? { etaMinutes: Math.max(1, Math.ceil(route.durationSeconds / 60)) } : {}) };
+    }
+  }
+  return res.status(200).json({ success: true, booking, bill, workerLocation });
 };
 
-export const cancelBooking = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const userId = req.user!.id;
-  const userRole = req.user!.role;
-  const { reason } = req.body;
-
-  const booking = await prisma.booking.findUnique({ where: { id } });
-  if (!booking) {
-    return res.status(404).json({ success: false, message: 'Booking not found' });
-  }
-
-  if (booking.status === BookingStatus.COMPLETED || booking.status === BookingStatus.CANCELLED) {
-    return res.status(400).json({ success: false, message: 'Booking cannot be cancelled' });
-  }
-
-  // Rule: IN_PROGRESS can ONLY be cancelled by Admin
-  if (booking.status === BookingStatus.IN_PROGRESS && userRole !== Role.ADMIN) {
-    return res.status(403).json({
-      success: false,
-      message: 'Job is already in progress. Only an administrator can cancel this booking.',
-    });
-  }
-
-  // Cancel any active dispatch session
-  dispatchService.cancelDispatch(id);
-
-  // If worker was assigned, free worker
-  if (booking.workerId) {
-    await prisma.workerProfile.update({
-      where: { id: booking.workerId },
-      data: { isBusy: false },
-    });
-  }
-
-  // Calculate cancellation fee
-  const workerArrived = booking.status === BookingStatus.ARRIVED || booking.status === BookingStatus.IN_PROGRESS;
-  const cancelResult = await pricingService.calculateCancellationFee(booking.assignedAt, workerArrived);
-
-  const updatedBooking = await prisma.booking.update({
-    where: { id },
-    data: {
-      status: BookingStatus.CANCELLED,
-      cancelledAt: new Date(),
-      cancelledBy: userRole,
-      cancelReason: reason || cancelResult.reason,
-      cancelFee: cancelResult.fee,
-    },
-  });
-
-  const io = getSocketServer();
-  if (io) {
-    io.to(`booking_${id}`).emit('booking:status_update', {
-      bookingId: id,
-      status: BookingStatus.CANCELLED,
-      cancelFee: cancelResult.fee,
-      cancelReason: reason || cancelResult.reason,
-    });
-  }
-
-  return res.status(200).json({
-    success: true,
-    message: 'Booking cancelled successfully',
-    booking: updatedBooking,
-    cancellation: cancelResult,
-  });
-};
-
-export const approveItem = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { itemId, action } = req.body;
-
-  const item = await prisma.bookingItem.findUnique({
-    where: { id: itemId },
-    include: { booking: true },
-  });
-
-  if (!item || item.bookingId !== id) {
-    return res.status(404).json({ success: false, message: 'Item not found for this booking' });
-  }
-
-  const newStatus = action === 'APPROVE' ? ApprovalStatus.APPROVED : ApprovalStatus.REJECTED;
-
-  const updatedItem = await prisma.bookingItem.update({
-    where: { id: itemId },
-    data: { approvalStatus: newStatus },
-  });
-
-  const io = getSocketServer();
-  if (io) {
-    io.to(`booking_${id}`).emit('booking:extra_item_response', {
-      bookingId: id,
-      itemId,
-      status: newStatus,
-      item: updatedItem,
-    });
-  }
-
-  return res.status(200).json({ success: true, item: updatedItem });
-};
-
-export const payBill = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { method, transactionRef } = req.body;
-
-  const booking = await prisma.booking.findUnique({
-    where: { id },
-    include: { items: true },
-  });
-
-  if (!booking) {
-    return res.status(404).json({ success: false, message: 'Booking not found' });
-  }
-
-  // Calculate final bill
-  const approvedItems = booking.items.filter((i) => i.approvalStatus === ApprovalStatus.APPROVED);
-  const serviceTotal = approvedItems
-    .filter((i) => !i.isPart)
-    .reduce((acc, curr) => acc + curr.unitPrice * curr.quantity, 0);
-  const partsTotal = approvedItems
-    .filter((i) => i.isPart)
-    .reduce((acc, curr) => acc + curr.unitPrice * curr.quantity, 0);
-
-  const bill = await pricingService.calculateBill({
-    baseVisitCharge: booking.baseVisitCharge,
-    serviceItemsTotal: serviceTotal,
-    partsTotal: partsTotal,
-    bookingTime: booking.createdAt,
-  });
-
-  const payment = await prisma.payment.upsert({
-    where: { bookingId: id },
-    update: {
-      method,
-      amount: bill.totalAmount,
-      status: PaymentStatus.COMPLETED,
-      transactionRef: transactionRef || (method === PaymentMethod.UPI ? `UPI_${Date.now()}` : 'CASH'),
-    },
-    create: {
-      bookingId: id,
-      method,
-      amount: bill.totalAmount,
-      status: PaymentStatus.COMPLETED,
-      transactionRef: transactionRef || (method === PaymentMethod.UPI ? `UPI_${Date.now()}` : 'CASH'),
-    },
-  });
-
-  // Save finalized totals on booking
-  await prisma.booking.update({
-    where: { id },
-    data: {
-      serviceTotal: bill.serviceTotal,
-      partsTotal: bill.partsTotal,
-      nightSurgeRate: bill.nightSurgeRate,
-      rushSurgeRate: bill.rushSurgeRate,
-      platformFee: bill.platformFee,
-      totalAmount: bill.totalAmount,
-    },
-  });
-
-  return res.status(200).json({ success: true, payment, bill });
-};
+export { cancelBooking, approveItem } from './actions.controller';
 
 export const rateBooking = async (req: Request, res: Response) => {
   const customerId = req.user!.id;
@@ -354,30 +160,14 @@ export const rateBooking = async (req: Request, res: Response) => {
     return res.status(404).json({ success: false, message: 'Booking or assigned worker not found' });
   }
 
-  const rating = await prisma.rating.create({
-    data: {
-      bookingId: id,
-      customerId,
-      workerId: booking.workerId,
-      stars,
-      comment,
-    },
-  });
+  if (booking.customerId !== customerId || booking.status !== BookingStatus.COMPLETED) return res.status(403).json({ success: false, message: 'Only your completed booking can be reviewed.' });
 
-  // Recalculate worker average rating
-  const ratings = await prisma.rating.findMany({
-    where: { workerId: booking.workerId },
-    select: { stars: true },
-  });
-
-  const avgRating = ratings.reduce((sum, r) => sum + r.stars, 0) / ratings.length;
-
-  await prisma.workerProfile.update({
-    where: { id: booking.workerId },
-    data: {
-      rating: Number(avgRating.toFixed(2)),
-      totalRatings: ratings.length,
-    },
+  const rating = await prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT id FROM worker_profiles WHERE id = ${booking.workerId} FOR UPDATE`;
+    const saved = await tx.rating.upsert({ where: { bookingId: id }, update: { stars, comment }, create: { bookingId: id, customerId, workerId: booking.workerId!, stars, comment } });
+    const stats = await tx.rating.aggregate({ where: { workerId: booking.workerId! }, _avg: { stars: true }, _count: true });
+    await tx.workerProfile.update({ where: { id: booking.workerId! }, data: { rating: Number((stats._avg.stars || 0).toFixed(2)), totalRatings: stats._count } });
+    return saved;
   });
 
   return res.status(201).json({ success: true, rating });
@@ -388,6 +178,8 @@ export const reportComplaint = async (req: Request, res: Response) => {
   const { id } = req.params;
   const { issue } = req.body;
 
+  const booking = await prisma.booking.findUnique({ where: { id } });
+  if (!booking || booking.customerId !== userId) return res.status(403).json({ success: false, message: 'This booking belongs to another customer.' });
   const complaint = await prisma.complaint.create({
     data: {
       bookingId: id,
@@ -406,15 +198,12 @@ export const getMyBookings = async (req: Request, res: Response) => {
     where: { customerId },
     include: {
       service: true,
-      worker: {
-        include: {
-          user: { select: { name: true, phone: true } },
-        },
-      },
+      worker: { select: { id: true, photoUrl: true, rating: true, totalRatings: true, vehicleType: true, user: { select: { name: true, phone: true } } } },
       payment: true,
       rating: true,
     },
     orderBy: { createdAt: 'desc' },
+    take: 100,
   });
 
   return res.status(200).json({ success: true, bookings });

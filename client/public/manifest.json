@@ -1,11 +1,11 @@
 {
-  "name": "QuickKaam - On-demand Home Services",
-  "short_name": "QuickKaam",
-  "description": "Book electricians, plumbers, majdoors, mechanics and AC technicians in ~20 minutes",
+  "name": "ServZest - On-demand Home Services",
+  "short_name": "ServZest",
+  "description": "Home services, clear pricing and booking updates.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#f59e0b",
+  "background_color": "#f7f6f2",
+  "theme_color": "#183d33",
   "icons": [
     {
       "src": "/icon-192.png",
@@ -17,5 +17,7 @@
       "sizes": "512x512",
       "type": "image/png"
     }
-  ]
+  ],
+  "id": "/",
+  "scope": "/"
 }

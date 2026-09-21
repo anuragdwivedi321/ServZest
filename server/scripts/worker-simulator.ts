@@ -2,6 +2,8 @@ import { io } from 'socket.io-client';
 
 // Configurable target worker & starting position (default Connaught Place, New Delhi)
 const SERVER_URL = process.env.SERVER_URL || 'http://localhost:4000';
+const WORKER_TOKEN = process.env.WORKER_TOKEN;
+if (!WORKER_TOKEN) throw new Error('Set WORKER_TOKEN to a development worker login token. The simulator can only update that worker.');
 const WORKER_ID = process.argv[2] || 'simulated-worker-1';
 
 // Starting coordinates (slightly offset from Connaught Place center)
@@ -15,7 +17,8 @@ const targetLng = parseFloat(process.argv[6] || '77.2090');
 console.log(`[WorkerSimulator] Connecting to ${SERVER_URL} as worker: ${WORKER_ID}`);
 console.log(`[WorkerSimulator] Start: (${currentLat}, ${currentLng}) -> Target: (${targetLat}, ${targetLng})`);
 
-const socket = io(SERVER_URL);
+const socket = io(SERVER_URL, { auth: { token: WORKER_TOKEN }, reconnection: false });
+socket.on('connect_error', error => { console.error('Worker authentication failed:', error.message); process.exitCode = 1; socket.disconnect(); });
 
 socket.on('connect', () => {
   console.log(`[WorkerSimulator] Connected to Socket.io with id: ${socket.id}`);

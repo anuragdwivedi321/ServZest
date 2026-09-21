@@ -23,12 +23,22 @@ export interface DispatchSession {
   candidates: CandidateWorker[];
   currentIndex: number;
   timer: NodeJS.Timeout | null;
+  expiresAt?: number;
   onWorkerRequested?: (worker: CandidateWorker, timeoutSec: number) => void;
   onDispatchExhausted?: () => void;
   onWorkerAssigned?: (worker: CandidateWorker) => void;
 }
 
 export class DispatchService {
+  getOffer(workerId: string) {
+    for (const session of this.activeSessions.values()) {
+      const worker = session.candidates[session.currentIndex];
+      if (worker?.id === workerId && session.expiresAt && session.expiresAt > Date.now()) return { bookingId: session.bookingId, distanceMeters: worker.straightDistanceMeters, roadDistanceKm: worker.roadDistanceKm, etaMinutes: worker.etaMinutes, timeoutSec: Math.ceil((session.expiresAt - Date.now()) / 1000) };
+    }
+    return null;
+  }
+  hasSession(id: string) { return this.activeSessions.has(id); }
+
   private activeSessions: Map<string, DispatchSession> = new Map();
 
   /**
@@ -57,6 +67,7 @@ export class DispatchService {
   ): Promise<CandidateWorker[]> {
     const maxRadiusMeters = await settingsService.getSetting<number>('max_dispatch_radius_meters', 5000);
     const maxEtaMinutes = await settingsService.getSetting<number>('max_eta_minutes', 20);
+    const subscriptionRequired = (await settingsService.getSetting<number>('subscription_required', 0)) === 1;
 
     try {
       const rows = await prisma.$queryRaw<
@@ -91,6 +102,11 @@ export class DispatchService {
           AND wp.is_busy = false
           AND wp.kyc_status = 'APPROVED'
           AND wp.current_location IS NOT NULL
+          AND wp.last_location_at > NOW() - INTERVAL '2 minutes'
+          AND (${subscriptionRequired} = false OR EXISTS (
+            SELECT 1 FROM worker_subscriptions sub
+            WHERE sub.worker_id = wp.id AND sub.status = 'ACTIVE' AND sub.ends_at > NOW()
+          ))
           AND ST_DWithin(
             wp.current_location,
             ST_SetSRID(ST_MakePoint(${pickupLng}, ${pickupLat}), 4326)::geography,
@@ -122,7 +138,7 @@ export class DispatchService {
       return candidates;
     } catch (err) {
       console.error('[DispatchService] Error executing PostGIS nearby query:', err);
-      return [];
+      throw err;
     }
   }
 
@@ -140,31 +156,31 @@ export class DispatchService {
       onWorkerAssigned: (worker: CandidateWorker) => void;
     }
   ): Promise<CandidateWorker[]> {
-    this.cancelDispatch(bookingId);
-
-    const candidates = await this.findNearbyWorkers(serviceId, pickupLat, pickupLng);
-
-    if (candidates.length === 0) {
-      console.log(`[DispatchService] No eligible workers found for booking ${bookingId}`);
-      callbacks.onDispatchExhausted();
-      return [];
-    }
-
+    const existing = this.activeSessions.get(bookingId);
+    if (existing) return existing.candidates;
     const session: DispatchSession = {
       bookingId,
       serviceId,
       pickupLat,
       pickupLng,
-      candidates,
+      candidates: [],
       currentIndex: 0,
       timer: null,
       ...callbacks,
     };
 
     this.activeSessions.set(bookingId, session);
-    this.sendNextCandidate(bookingId);
-
-    return candidates;
+    try {
+      const candidates = await this.findNearbyWorkers(serviceId, pickupLat, pickupLng);
+      // Cancellation can happen while the database lookup is in flight.
+      if (this.activeSessions.get(bookingId) !== session) return [];
+      session.candidates = candidates;
+      await this.sendNextCandidate(bookingId);
+      return candidates;
+    } catch (error) {
+      if (this.activeSessions.get(bookingId) === session) this.cancelDispatch(bookingId);
+      throw error;
+    }
   }
 
   /**
@@ -182,12 +198,15 @@ export class DispatchService {
     }
 
     const worker = session.candidates[session.currentIndex];
+    const index = session.currentIndex;
     const timeoutSec = await settingsService.getSetting<number>('worker_dispatch_timeout_sec', 30);
+    if (this.activeSessions.get(bookingId) !== session || session.currentIndex !== index) return;
 
     console.log(
       `[DispatchService] Dispatching booking ${bookingId} to candidate ${session.currentIndex + 1}/${session.candidates.length}: ${worker.name} (${worker.id})`
     );
 
+    session.expiresAt = Date.now() + timeoutSec * 1000;
     session.onWorkerRequested?.(worker, timeoutSec);
 
     // Set 30-second timer
@@ -195,7 +214,7 @@ export class DispatchService {
     session.timer = setTimeout(() => {
       console.log(`[DispatchService] Worker ${worker.id} timed out for booking ${bookingId}`);
       session.currentIndex += 1;
-      this.sendNextCandidate(bookingId);
+      void this.sendNextCandidate(bookingId).catch(error => console.error('Dispatch advance failed:', error));
     }, timeoutSec * 1000);
   }
 
@@ -210,7 +229,7 @@ export class DispatchService {
     if (currentCandidate && currentCandidate.id === workerId) {
       if (session.timer) clearTimeout(session.timer);
       session.currentIndex += 1;
-      this.sendNextCandidate(bookingId);
+      await this.sendNextCandidate(bookingId);
     }
   }
 
@@ -221,28 +240,26 @@ export class DispatchService {
   async handleWorkerAccept(bookingId: string, workerId: string): Promise<{ success: boolean; message: string }> {
     const session = this.activeSessions.get(bookingId);
 
-    // Atomic DB update to guarantee no two workers can accept the same booking
-    const updatedCount = await prisma.booking.updateMany({
-      where: {
-        id: bookingId,
-        status: BookingStatus.SEARCHING,
-      },
-      data: {
-        workerId,
-        status: BookingStatus.ASSIGNED,
-        assignedAt: new Date(),
-      },
-    });
-
-    if (updatedCount.count === 0) {
-      return { success: false, message: 'Booking already assigned or cancelled' };
+    if (!session || session.candidates[session.currentIndex]?.id !== workerId) {
+      return { success: false, message: 'This offer has expired or belongs to another professional.' };
     }
-
-    // Mark worker busy
-    await prisma.workerProfile.update({
-      where: { id: workerId },
-      data: { isBusy: true },
-    });
+    const subscriptionRequired = (await settingsService.getSetting<number>('subscription_required', 0)) === 1;
+    try {
+      await prisma.$transaction(async tx => {
+        await tx.$executeRaw`SELECT id FROM bookings WHERE id = ${bookingId} FOR UPDATE`;
+        if (this.activeSessions.get(bookingId) !== session || session.candidates[session.currentIndex]?.id !== workerId || !session.expiresAt || session.expiresAt <= Date.now()) throw new Error('Offer expired.');
+        const worker = await tx.workerProfile.updateMany({
+          where: { id: workerId, isBusy: false, isOnline: true, kycStatus: 'APPROVED', lastLocationAt: { gt: new Date(Date.now()-120000) }, services: { some: { serviceId: session.serviceId } }, ...(subscriptionRequired ? { subscriptions: { some: { status: 'ACTIVE', endsAt: { gt: new Date() } } } } : {}) },
+          data: { isBusy: true },
+        });
+        if (!worker.count) throw new Error('Professional is no longer available.');
+        const assigned = await tx.booking.updateMany({
+          where: { id: bookingId, status: BookingStatus.SEARCHING },
+          data: { workerId, status: BookingStatus.ASSIGNED, assignedAt: new Date() },
+        });
+        if (!assigned.count) throw new Error('Booking already assigned or cancelled.');
+      });
+    } catch (error: any) { return { success: false, message: error.message }; }
 
     if (session) {
       if (session.timer) clearTimeout(session.timer);

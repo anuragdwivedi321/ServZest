@@ -6,7 +6,7 @@ const CITY_LAT = parseFloat(process.env.DEFAULT_LAT || '28.6139');
 const CITY_LNG = parseFloat(process.env.DEFAULT_LNG || '77.2090');
 
 async function main() {
-  console.log('Seeding QuickKaam database...');
+  console.log('Seeding ServZest database...');
 
   // 1. Seed Admin Settings
   console.log('Seeding admin_settings...');
@@ -20,6 +20,7 @@ async function main() {
     { key: 'max_dispatch_radius_meters', value: '5000', description: 'Worker search radius in meters' },
     { key: 'max_eta_minutes', value: '20', description: 'Maximum allowed worker ETA in minutes' },
     { key: 'worker_dispatch_timeout_sec', value: '30', description: 'Timeout per worker request (seconds)' },
+    { key: 'subscription_required', value: '0', description: 'Set to 1 after production subscription billing is configured' },
   ];
 
   for (const s of settings) {
@@ -29,6 +30,11 @@ async function main() {
       create: s,
     });
   }
+  await prisma.subscriptionPlan.upsert({
+    where: { id: '00000000-0000-4000-8000-000000000030' },
+    update: { name: 'Professional Monthly', price: 299, durationDays: 30, isActive: true },
+    create: { id: '00000000-0000-4000-8000-000000000030', name: 'Professional Monthly', price: 299, durationDays: 30 },
+  });
 
   // 2. Seed Services & Rate Card
   console.log('Seeding services & rate card items...');
@@ -137,12 +143,17 @@ async function main() {
     }
   }
 
+  if (process.env.SEED_DEMO_DATA !== 'true') {
+    console.log('Catalog/settings seeded. Demo accounts skipped (set SEED_DEMO_DATA=true only in a local development database).');
+    return;
+  }
+
   // 3. Seed Admin
   console.log('Seeding admin user...');
   await prisma.user.upsert({
     where: { phone: '9999999999' },
-    update: { name: 'QuickKaam Admin', role: Role.ADMIN },
-    create: { phone: '9999999999', name: 'QuickKaam Admin', role: Role.ADMIN },
+    update: { name: 'ServZest Admin', role: Role.ADMIN },
+    create: { phone: '9999999999', name: 'ServZest Admin', role: Role.ADMIN },
   });
 
   // 4. Seed Demo Customers

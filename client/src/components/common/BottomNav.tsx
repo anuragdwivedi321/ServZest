@@ -11,13 +11,19 @@ export const BottomNav: React.FC = () => {
   const pathname = usePathname();
   const { user } = useAuth();
   const { t } = useLanguage();
+  const workspace = user?.role === 'WORKER'
+    ? { href: '/worker/dashboard', label: 'Work', Icon: Wrench, active: pathname.startsWith('/worker') }
+    : user?.role === 'ADMIN'
+    ? { href: '/admin', label: 'Admin', Icon: Shield, active: pathname.startsWith('/admin') }
+    : { href: '/history', label: t.history, Icon: History, active: pathname === '/history' || pathname.startsWith('/bookings/') };
+  const WorkspaceIcon = workspace.Icon;
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur border-t border-gray-200 px-6 py-2 flex items-center justify-around shadow-lg sm:max-w-md sm:mx-auto sm:rounded-t-2xl">
+    <nav className="mobile-dock lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur border-t border-slate-200 px-6 py-2 flex items-center justify-around shadow-lg">
       <Link
         href="/"
-        className={`flex flex-col items-center gap-1 text-xs font-semibold ${
-          pathname === '/' ? 'text-brand-600' : 'text-gray-500 hover:text-gray-900'
+        className={`flex flex-col items-center gap-1 text-xs font-bold transition ${
+          pathname === '/' ? 'text-brand-600' : 'text-slate-500 hover:text-slate-900'
         }`}
       >
         <Home className="w-5 h-5" />
@@ -25,48 +31,23 @@ export const BottomNav: React.FC = () => {
       </Link>
 
       <Link
-        href="/history"
-        className={`flex flex-col items-center gap-1 text-xs font-semibold ${
-          pathname === '/history' ? 'text-brand-600' : 'text-gray-500 hover:text-gray-900'
+        href={workspace.href}
+        className={`flex flex-col items-center gap-1 text-xs font-bold transition ${
+          workspace.active ? 'text-brand-600' : 'text-slate-500 hover:text-slate-900'
         }`}
       >
-        <History className="w-5 h-5" />
-        <span>{t.history}</span>
+        <WorkspaceIcon className="w-5 h-5" />
+        <span>{workspace.label}</span>
       </Link>
 
-      {/* Role-specific quick link */}
-      {user?.role === 'WORKER' && (
-        <Link
-          href="/worker/dashboard"
-          className={`flex flex-col items-center gap-1 text-xs font-semibold ${
-            pathname.startsWith('/worker') ? 'text-emerald-600' : 'text-gray-500 hover:text-gray-900'
-          }`}
-        >
-          <Wrench className="w-5 h-5" />
-          <span>Worker</span>
-        </Link>
-      )}
-
-      {user?.role === 'ADMIN' && (
-        <Link
-          href="/admin/dashboard"
-          className={`flex flex-col items-center gap-1 text-xs font-semibold ${
-            pathname.startsWith('/admin') ? 'text-purple-600' : 'text-gray-500 hover:text-gray-900'
-          }`}
-        >
-          <Shield className="w-5 h-5" />
-          <span>Admin</span>
-        </Link>
-      )}
-
       <Link
-        href={user ? '/history' : '/login'}
-        className={`flex flex-col items-center gap-1 text-xs font-semibold ${
-          pathname === '/login' ? 'text-brand-600' : 'text-gray-500 hover:text-gray-900'
+        href="/account"
+        className={`flex flex-col items-center gap-1 text-xs font-bold transition ${
+          pathname === '/account' ? 'text-brand-600' : 'text-slate-500 hover:text-slate-900'
         }`}
       >
         <User className="w-5 h-5" />
-        <span>{user ? 'Account' : t.login}</span>
+        <span>Account</span>
       </Link>
     </nav>
   );

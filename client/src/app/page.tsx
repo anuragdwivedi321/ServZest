@@ -1,135 +1,44 @@
 'use client';
-
-import React, { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { ArrowUpRight, ArrowRight, Search, ShieldCheck, RefreshCw, MapPin, Check } from 'lucide-react';
 import { useLanguage } from '../context/LanguageContext';
-import { Zap, Wrench, HardHat, Cog, AirVent, Clock, ShieldCheck, ArrowRight } from 'lucide-react';
 import { api } from '../lib/api';
-
-const SERVICE_ICONS: Record<string, any> = {
-  electrician: Zap,
-  plumber: Wrench,
-  majdoor: HardHat,
-  mechanic: Cog,
-  ac: AirVent,
-};
-
-const SERVICE_BG: Record<string, string> = {
-  electrician: 'bg-amber-50 text-amber-600 border-amber-200',
-  plumber: 'bg-blue-50 text-blue-600 border-blue-200',
-  majdoor: 'bg-orange-50 text-orange-600 border-orange-200',
-  mechanic: 'bg-slate-50 text-slate-700 border-slate-200',
-  ac: 'bg-cyan-50 text-cyan-600 border-cyan-200',
-};
-
-export default function HomePage() {
-  const { language, t } = useLanguage();
-  const [services, setServices] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api.getServices().then((res) => {
-      if (res.success) {
-        setServices(res.services);
-      }
-      setLoading(false);
-    });
-  }, []);
-
-  return (
-    <div className="space-y-5">
-      {/* Hero Banner */}
-      <div className="bg-gradient-to-br from-amber-500 via-amber-600 to-amber-700 text-white rounded-3xl p-5 shadow-lg relative overflow-hidden">
-        <div className="relative z-10 space-y-2">
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/20 text-xs font-bold tracking-wide backdrop-blur">
-            <Clock className="w-3.5 h-3.5" />
-            <span>{language === 'hi' ? 'लगभग 20 मिनट में' : 'Within ~20 Mins'}</span>
-          </div>
-          <h1 className="text-2xl font-black leading-tight tracking-tight">
-            {language === 'hi' ? 'घर की कोई भी समस्या? तुरंत कारीगर बुलाएं' : 'Need a Fix at Home? Get Instant Help'}
-          </h1>
-          <p className="text-amber-100 text-xs font-medium">
-            {language === 'hi'
-              ? 'पारदर्शी रेट कार्ड • प्रशिक्षित कारीगर • सुरक्षित सेवा'
-              : 'Transparent Rates • Verified Workers • No Hidden Charges'}
-          </p>
-        </div>
-        <div className="absolute right-0 bottom-0 translate-x-3 translate-y-3 opacity-15 text-8xl font-black select-none pointer-events-none">
-          ⚡
-        </div>
-      </div>
-
-      {/* Services Grid (Large Buttons for Low-Literacy Users) */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-black text-gray-900 tracking-tight">{t.selectService}</h2>
-          <span className="text-xs font-semibold text-gray-500">
-            {language === 'hi' ? '5 मुख्य सेवाएं' : '5 Core Services'}
-          </span>
-        </div>
-
-        {loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3, 4, 5].map((n) => (
-              <div key={n} className="h-24 bg-gray-100 animate-pulse rounded-2xl" />
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-3">
-            {services.map((svc) => {
-              const Icon = SERVICE_ICONS[svc.slug] || Wrench;
-              const colorClass = SERVICE_BG[svc.slug] || 'bg-gray-50 text-gray-700 border-gray-200';
-              const name = language === 'hi' ? svc.nameHi : svc.nameEn;
-
-              return (
-                <Link
-                  key={svc.id}
-                  href={`/book/${svc.slug}`}
-                  className="flex items-center justify-between p-4 bg-white border border-gray-200 hover:border-brand-500 rounded-2xl shadow-sm hover:shadow-md transition active:scale-[0.99] group"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center border ${colorClass}`}>
-                      <Icon className="w-7 h-7 stroke-[2.5]" />
-                    </div>
-                    <div>
-                      <h3 className="text-base font-bold text-gray-900 group-hover:text-brand-600 transition">
-                        {name}
-                      </h3>
-                      <p className="text-xs text-gray-500 font-medium mt-0.5">
-                        {t.visitCharge}: <span className="font-bold text-gray-800">₹{svc.visitCharge}</span>
-                      </p>
-                      {svc.items?.length > 0 && (
-                        <p className="text-[11px] text-amber-700 font-medium">
-                          ₹{svc.items[0].minPrice} - ₹{svc.items[0].maxPrice} ({svc.items[0].nameEn})
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="w-10 h-10 rounded-full bg-gray-100 group-hover:bg-brand-500 group-hover:text-white flex items-center justify-center transition">
-                    <ArrowRight className="w-5 h-5" />
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Trust & Safety Badges */}
-      <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-3">
-        <ShieldCheck className="w-8 h-8 text-emerald-600 flex-shrink-0" />
-        <div className="text-xs text-emerald-950">
-          <p className="font-bold">
-            {language === 'hi' ? '100% सत्यापित कारीगर' : '100% Verified Workers'}
-          </p>
-          <p className="text-emerald-700 mt-0.5">
-            {language === 'hi'
-              ? 'आधार एवं पृष्ठभूमि जांच के बाद ही काम की अनुमति दी जाती है।'
-              : 'Aadhaar-verified & skill-tested professionals with transparent ratings.'}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
+const descriptions: Record<string,string> = { ac:'Cooling, servicing & repairs',plumber:'Leaks, taps & everyday fixes',electrician:'Safe repairs, thoughtfully handled',majdoor:'An extra pair of capable hands',mechanic:'Get things moving again' };
+export default function HomePage(){
+ const {language}=useLanguage(); const text=(en:string,hi:string)=>language==='hi'?hi:en;
+ const [services,setServices]=useState<any[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState(''),[query,setQuery]=useState('');
+ const load=useCallback(async()=>{setLoading(true);setError('');try{const result=await api.getServices();if(!result.success)throw Error();setServices(result.services);}catch{setError('Services could not load. Please try again.');}finally{setLoading(false);}},[]);
+ useEffect(()=>{void load()},[load]);
+ const filtered=services.filter(s=>`${s.nameEn} ${s.nameHi} ${s.slug} ${(s.items||[]).map((i:any)=>i.nameEn).join(' ')}`.toLowerCase().includes(query.trim().toLowerCase()));
+ return <div className="concierge-home">
+  <section className="concierge-intro"><div><span className="concierge-eyebrow">{text('A LITTLE LESS TO WORRY ABOUT','घर की देखभाल, आसानी से')}</span><h1>{text('Love your home.','अपने घर से प्यार।')}<br/><em>{text('We’ll care for it.','देखभाल हम करेंगे।')}</em></h1><p>{text('For the things your home needs.','आपके घर की ज़रूरतों के लिए।')}<br/>{text('And the time you’d rather keep.','ताकि आपका समय आपका रहे।')}</p><a href="#services-grid" className="concierge-text-link">{text('Find your helping hand','अपनी सेवा चुनें')}<ArrowRight size={18}/></a></div><aside className="home-showcase" aria-label="A thoughtfully cared-for home">
+ <span className="showcase-caption">THE ART OF EVERYDAY CARE</span>
+ <svg viewBox="0 0 520 480" role="img" aria-label="Sunlit interior with an arched window, lounge chair and houseplant">
+  <defs><linearGradient id="wall" x2="1" y2="1"><stop stopColor="#e9e0d0"/><stop offset="1" stopColor="#d3c4a8"/></linearGradient><linearGradient id="window" x2="0" y2="1"><stop stopColor="#bacab9"/><stop offset="1" stopColor="#f6f0d9"/></linearGradient><linearGradient id="seat" x2="1" y2="1"><stop stopColor="#6b7858"/><stop offset="1" stopColor="#354b35"/></linearGradient></defs>
+  <rect width="520" height="480" fill="url(#wall)"/><path d="M0 365H520V480H0Z" fill="#c5b699"/>
+  <path d="M61 346V152A98 98 0 0 1 257 152V346Z" fill="#a79c82"/><path d="M73 345V153A86 86 0 0 1 245 153V345Z" fill="url(#window)"/>
+  <path d="M159 67V345M75 196H244" stroke="#ece5d5" strokeWidth="8"/><path d="M73 286Q110 250 159 279T245 271V345H73Z" fill="#a8b29a"/><path d="M73 319Q140 286 245 310V345H73Z" fill="#879777"/>
+  <path d="M83 347L283 480H477L226 347Z" fill="#e8dec1" opacity=".65"/><path d="M159 347L341 480M73 396H330" stroke="#b7a787" strokeWidth="6" opacity=".45"/>
+  <ellipse cx="304" cy="425" rx="149" ry="27" fill="#9a937b" opacity=".4"/>
+  <path d="M229 376L217 436M364 371L380 431" stroke="#594d39" strokeWidth="9"/>
+  <rect x="211" y="236" width="160" height="151" rx="48" fill="url(#seat)"/><path d="M229 337Q282 316 350 337V389H225Z" fill="#7a8968"/><rect x="194" y="320" width="38" height="82" rx="17" fill="#485e40"/><rect x="353" y="319" width="36" height="83" rx="17" fill="#40563b"/>
+  <rect x="259" y="266" width="68" height="64" rx="13" fill="#e5d4ae" transform="rotate(12 293 298)"/><path d="M268 280L309 289M265 292L307 301" stroke="#c6ae83" strokeWidth="2"/>
+  <path d="M395 354V168" stroke="#78684b" strokeWidth="5"/><path d="M349 174L365 126H425L442 174Z" fill="#f6eacd"/><ellipse cx="395" cy="174" rx="47" ry="7" fill="#bbaa84"/><ellipse cx="395" cy="358" rx="31" ry="6" fill="#78684b"/>
+  <path d="M453 400V292" stroke="#62714b" strokeWidth="4"/><ellipse cx="437" cy="309" rx="13" ry="35" fill="#7b8a58" transform="rotate(-39 437 309)"/><ellipse cx="470" cy="283" rx="15" ry="38" fill="#536d43" transform="rotate(31 470 283)"/><ellipse cx="469" cy="329" rx="12" ry="30" fill="#8b9965" transform="rotate(40 469 329)"/><path d="M430 371H479L470 427H440Z" fill="#aa7758"/>
+  <ellipse cx="128" cy="405" rx="53" ry="14" fill="#ecd9b7"/><path d="M100 414L92 450M157 414L165 450" stroke="#957757" strokeWidth="5"/><rect x="117" y="378" width="19" height="23" rx="5" fill="#f8f3e6"/><path d="M136 382Q150 382 143 393H136" fill="none" stroke="#f8f3e6" strokeWidth="4"/>
+ </svg>
+ <div className="showcase-badge"><ShieldCheck size={21}/><div><strong>{text('Home feels better, cared for.','देखभाल से घर बने बेहतर।')}</strong><span>{text('Leave the little fixes to us.','छोटी परेशानियाँ हम पर छोड़ें।')}</span></div></div>
+ </aside></section>
+  <section id="services-grid" className="concierge-catalog"><div className="concierge-catalog-head"><div><span className="concierge-eyebrow">{text('THE EVERYDAY ESSENTIALS','घर की ज़रूरी सेवाएँ')}</span><h2>{text('What needs attention?','किस काम में मदद चाहिए?')}</h2></div><label className="concierge-search"><Search size={18}/><input aria-label="Search services" placeholder={text('Find a service','सेवा खोजें')} value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<button type="button" aria-label="Clear search" onClick={()=>setQuery('')}>×</button>}</label></div>
+  {loading&&<p role="status" className="concierge-empty">{text('Finding your home essentials…','सेवाएँ लोड हो रही हैं…')}</p>}
+  {error&&<div role="alert" className="concierge-empty">{error}<button onClick={load} className="secondary-action"><RefreshCw size={16}/>Retry</button></div>}
+  {!loading&&!error&&<div className="concierge-services">{filtered.map((s,i)=><Link href={`/book/${s.slug}`} key={s.id} className="concierge-service"><span className="concierge-number">{String(i+1).padStart(2,'0')}</span><div><h3>{language==='hi'?s.nameHi:s.nameEn}</h3><p>{language==='hi'?'कीमत देखें और सेवा बुक करें।':descriptions[s.slug]||'A helping hand for your home'}</p></div><span className="concierge-price"><small>{text('Visit from','विज़िट शुल्क')}</small>₹{Number(s.visitCharge).toLocaleString('en-IN')}</span><ArrowUpRight size={22}/></Link>)}</div>}
+  {!loading&&!error&&!filtered.length&&<p role="status" className="concierge-empty">{text('No match. Try AC, plumber or electrician.','सेवा नहीं मिली। एसी या प्लंबर खोजें।')}</p>}
+  </section>
+  <div className="concierge-promise"><ShieldCheck size={22}/><div><strong>{text('Your approval. Before extra work.','अतिरिक्त काम से पहले आपकी मंज़ूरी।')}</strong><p>{text('Clear estimates. Cash or UPI after service.','स्पष्ट अनुमान। सेवा के बाद कैश या UPI भुगतान।')}</p></div></div>
+  <section className="concierge-process"><div><span className="concierge-eyebrow">{text('THOUGHTFULLY SIMPLE','आसान और स्पष्ट')}</span><h2>{text('Less to manage.','कम परेशानी।')}<br/><em>{text('More peace of mind.','ज़्यादा सुकून।')}</em></h2></div><div>{[{Icon:Check,title:text('Choose what you need','अपनी सेवा चुनें'),body:text('See the visit price and tell us what needs fixing.','विज़िट शुल्क देखें और अपनी समस्या बताएँ।')},{Icon:MapPin,title:text('Follow their arrival','कारीगर की लोकेशन देखें'),body:text('After acceptance, follow the available live location and estimated arrival.','स्वीकृति के बाद उपलब्ध लाइव लोकेशन और आने का अनुमान देखें।')},{Icon:ShieldCheck,title:text('Stay in control','हर कदम पर आपकी मंज़ूरी'),body:text('Approve extra repairs, review the bill and pay after service.','अतिरिक्त मरम्मत मंज़ूर करें, बिल देखें और फिर भुगतान करें।')}].map(({Icon,title,body})=><article key={title}><Icon size={20}/><div><h3>{title}</h3><p>{body}</p></div></article>)}</div></section>
+  <section className="concierge-partner"><div><span className="concierge-eyebrow">{text('FOR PEOPLE WHO KNOW THEIR CRAFT','हुनरमंद लोगों के लिए')}</span><h2>{text('Good at what you do?','अपने काम में माहिर हैं?')}</h2><p>{text('Bring your expertise. We’ll help you manage the work.','अपना हुनर लाएँ। काम मैनेज करने में हम मदद करेंगे।')}</p></div><Link href="/login" className="primary-action">{text('Join as a professional','कारीगर के रूप में जुड़ें')}<ArrowUpRight size={18}/></Link></section>
+  <p className="concierge-disclaimer">{text('Arrival depends on nearby availability and traffic. Final repairs and parts require your approval.','आगमन उपलब्धता और ट्रैफिक पर निर्भर है। अतिरिक्त काम के लिए आपकी मंज़ूरी ज़रूरी है।')}</p>
+ </div>;
 }

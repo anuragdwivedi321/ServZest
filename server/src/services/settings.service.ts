@@ -10,6 +10,7 @@ export interface AdminSettingsMap {
   max_dispatch_radius_meters: number;
   max_eta_minutes: number;
   worker_dispatch_timeout_sec: number;
+  subscription_required: number;
   [key: string]: number | string;
 }
 
@@ -23,6 +24,7 @@ export const DEFAULT_SETTINGS: AdminSettingsMap = {
   max_dispatch_radius_meters: 5000,
   max_eta_minutes: 20,
   worker_dispatch_timeout_sec: 30,
+  subscription_required: 0,
 };
 
 export class SettingsService {
@@ -78,6 +80,14 @@ export class SettingsService {
       create: { key, value: stringValue, description },
     });
     this.cache.set(key, { value: stringValue, timestamp: Date.now() });
+  }
+
+  async updateSettings(settings: Record<string, string | number>): Promise<void> {
+    const entries = Object.entries(settings);
+    await prisma.$transaction(entries.map(([key, value]) => prisma.adminSetting.upsert({
+      where: { key }, update: { value: String(value) }, create: { key, value: String(value) },
+    })));
+    for (const [key, value] of entries) this.cache.set(key, { value: String(value), timestamp: Date.now() });
   }
 
   private parseValue(val: string): number | string {

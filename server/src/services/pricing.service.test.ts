@@ -8,10 +8,10 @@ describe('PricingService', () => {
 
   describe('isNightHours', () => {
     it('identifies night hours correctly (10 PM to 6 AM)', () => {
-      const night1 = new Date('2026-09-19T22:30:00');
-      const night2 = new Date('2026-09-19T03:00:00');
-      const day1 = new Date('2026-09-19T14:00:00');
-      const day2 = new Date('2026-09-19T06:30:00');
+      const night1 = new Date('2026-09-19T22:30:00+05:30');
+      const night2 = new Date('2026-09-19T03:00:00+05:30');
+      const day1 = new Date('2026-09-19T14:00:00+05:30');
+      const day2 = new Date('2026-09-19T06:30:00+05:30');
 
       expect(pricingService.isNightHours(night1)).toBe(true);
       expect(pricingService.isNightHours(night2)).toBe(true);
@@ -21,6 +21,16 @@ describe('PricingService', () => {
   });
 
   describe('calculateBill', () => {
+    it('never rounds commission above a small bill or makes earnings negative', async () => {
+      const bill = await pricingService.calculateBill({ baseVisitCharge: 0.6, rules: { nightSurgeRate: 0, rushSurgeRate: 1, commissionPct: 100 } });
+      expect(bill.platformFee).toBe(0.6); expect(bill.workerEarnings).toBe(0);
+    });
+    it('uses the saved quote without querying current settings and rounds totals to paise', async () => {
+      const settings = jest.spyOn(settingsService, 'getSetting').mockRejectedValue(new Error('Database unavailable'));
+      const bill = await pricingService.calculateBill({ baseVisitCharge: 0.1, serviceItemsTotal: 0.2, partsTotal: 0.3, rules: { nightSurgeRate: 0, rushSurgeRate: 1, commissionPct: 0 } });
+      expect(settings).not.toHaveBeenCalled();
+      expect(bill.subtotal).toBe(0.6); expect(bill.totalAmount).toBe(0.6); expect(bill.workerEarnings).toBe(0.6);
+    });
     it('calculates standard daytime bill with no surge', async () => {
       jest.spyOn(settingsService, 'getSetting').mockImplementation(async (key: string, def?: any) => {
         if (key === 'night_charge_pct') return 25;
@@ -30,7 +40,7 @@ describe('PricingService', () => {
         return def;
       });
 
-      const dayTime = new Date('2026-09-19T12:00:00');
+      const dayTime = new Date('2026-09-19T12:00:00+05:30');
       const bill = await pricingService.calculateBill({
         baseVisitCharge: 99,
         serviceItemsTotal: 300,
@@ -59,7 +69,7 @@ describe('PricingService', () => {
         return def;
       });
 
-      const nightTime = new Date('2026-09-19T23:00:00');
+      const nightTime = new Date('2026-09-19T23:00:00+05:30');
       const bill = await pricingService.calculateBill({
         baseVisitCharge: 99,
         serviceItemsTotal: 200,
@@ -82,7 +92,7 @@ describe('PricingService', () => {
         return def;
       });
 
-      const dayTime = new Date('2026-09-19T17:00:00');
+      const dayTime = new Date('2026-09-19T17:00:00+05:30');
       const bill = await pricingService.calculateBill({
         baseVisitCharge: 199, // AC
         serviceItemsTotal: 500,
@@ -104,8 +114,8 @@ describe('PricingService', () => {
         return def;
       });
 
-      const assignedAt = new Date('2026-09-19T12:00:00');
-      const cancelledAt = new Date('2026-09-19T12:01:30'); // 90 seconds
+      const assignedAt = new Date('2026-09-19T12:00:00+05:30');
+      const cancelledAt = new Date('2026-09-19T12:01:30+05:30'); // 90 seconds
 
       const result = await pricingService.calculateCancellationFee(assignedAt, false, cancelledAt);
       expect(result.fee).toBe(0);
@@ -119,8 +129,8 @@ describe('PricingService', () => {
         return def;
       });
 
-      const assignedAt = new Date('2026-09-19T12:00:00');
-      const cancelledAt = new Date('2026-09-19T12:03:00'); // 180 seconds
+      const assignedAt = new Date('2026-09-19T12:00:00+05:30');
+      const cancelledAt = new Date('2026-09-19T12:03:00+05:30'); // 180 seconds
 
       const result = await pricingService.calculateCancellationFee(assignedAt, false, cancelledAt);
       expect(result.fee).toBe(40);
@@ -134,8 +144,8 @@ describe('PricingService', () => {
         return def;
       });
 
-      const assignedAt = new Date('2026-09-19T12:00:00');
-      const cancelledAt = new Date('2026-09-19T12:05:00');
+      const assignedAt = new Date('2026-09-19T12:00:00+05:30');
+      const cancelledAt = new Date('2026-09-19T12:05:00+05:30');
 
       const result = await pricingService.calculateCancellationFee(assignedAt, true, cancelledAt);
       expect(result.fee).toBe(40);

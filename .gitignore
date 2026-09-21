@@ -1,4 +1,10 @@
 node_modules
 .env
+.env.local
+.env.*.local
+*.tsbuildinfo
+backend-verification.json
 .next
+.next-dev
+.payment-preview.json
 dist

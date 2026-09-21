@@ -1,4 +1,4 @@
-# QuickKaam (क्विककाम) ⚡
+# ServZest (सर्वज़ेस्ट) ⚡
 > **MVP of an On-Demand Home Services Marketplace for India** (Electricians, Plumbers, Laborers/Majdoor, Mechanics, and AC Technicians) — inspired by Rapido & Urban Company.
 
 The nearest available verified worker reaches within **~20 minutes** at fair, transparent, and pre-estimated pricing.
@@ -56,7 +56,7 @@ The nearest available verified worker reaches within **~20 minutes** at fair, tr
 ## 🛠️ Tech Stack
 
 - **Monorepo**: `/client` and `/server`
-- **Client**: Next.js 14 (App Router) + TypeScript + Tailwind CSS + Lucide Icons + Leaflet (OpenStreetMap)
+- **Client**: Next.js 16 (App Router) + React 19 + TypeScript + Tailwind CSS + Lucide Icons + Leaflet (OpenStreetMap)
 - **Server**: Node.js + Express + TypeScript + Socket.io + Prisma ORM
 - **Database**: PostgreSQL 16 with PostGIS 3.4 (`postgis/postgis:16-3.4`)
 - **Testing**: Jest + ts-jest
@@ -64,6 +64,18 @@ The nearest available verified worker reaches within **~20 minutes** at fair, tr
 ---
 
 ## 📦 Project Setup & Running
+
+### Daily development (automatic updates)
+
+After installing client/server dependencies and configuring the database below, run
+`npm run dev` from the **ServZest root folder** to start both servers together.
+On Windows, you can instead double-click **Start-ServZest.cmd**.
+
+Open http://localhost:3001 and keep the development terminal running. Saving frontend
+files automatically updates the page; backend changes restart the API watcher.
+There is no need to run `cd client` or restart the servers after each edit.
+Press **Ctrl+C** to stop both servers. If the terminal is closed or the PC restarts,
+start the launcher again. The database must also be running for booking features.
 
 ### 1. Database (PostgreSQL + PostGIS)
 Start the PostGIS container with Docker Compose:
@@ -82,8 +94,11 @@ npm install
 # Run database migrations (creates PostGIS extension & GiST index)
 npm run prisma:migrate
 
-# Seed 1 Admin, 10 Multi-Skilled PostGIS Workers, 5 Services with Rate Cards, 2 Demo Customers, and Admin Settings
+# Seed catalog/settings only (safe default)
 npm run seed
+
+# Local fixture accounts only; never enable this against production
+$env:SEED_DEMO_DATA='true'; npm run seed
 
 # Run unit tests (Pricing & Dispatch logic)
 npm test
@@ -98,14 +113,24 @@ In the `/client` directory:
 cd client
 npm install
 
-# Start Next.js mobile-first PWA (port 3000)
+# Start Next.js mobile-first PWA (the root launcher uses port 3001)
 npm run dev
 ```
-Open `http://localhost:3000` in your mobile browser or desktop.
+Open `http://localhost:3001` when using the root launcher. Running the client package by itself uses Next.js's default port unless you pass `--port`.
 
 ---
 
 ## 🧪 Testing Tools & Worker Simulator
+
+### Booking checkout
+
+Checkout saves selected tasks, a manually confirmed map pin and full address, optional problem details, coupon, and schedule. Selected tasks use the listed starting price; extra work requires approval. `WELCOME50` applies to a customer's first booking (cancelled and unmatched bookings do not consume eligibility). Its discount reduces the labor amount before commission.
+
+Slots use India time, require at least 30 minutes' notice, and cover the next seven days. Scheduled bookings remain `SCHEDULED` until their window starts. The running API checks due bookings every ten seconds and then starts matching. An exhausted search becomes `NO_PROVIDER`; a customer can make a fresh booking. This scheduler requires the API to stay running and currently targets a single server process.
+
+Cash or professional UPI QR can be used after service. Customer-reported payments remain pending until the assigned professional confirms receipt. A payment gateway and automatic bank verification are not configured. See `IMPLEMENTATION_STATUS.md` for the current flows and remaining business launch requirements; the older `PRODUCTION_READINESS_AUDIT.md` is the original audit snapshot.
+
+For an integration check against the configured **development database**, keep the API running, then run `node scripts/checkout-smoke.cjs` from `server`. It creates isolated fixture customers, tests pricing, concurrent retries, ownership, cancellation and scheduled dispatch, and removes only its own records.
 
 ### Automated Unit Tests
 Run the test suites covering pricing calculations, night surcharges, rush caps, cancellation rules, and dispatch ETA:
@@ -116,6 +141,7 @@ npm test
 
 ### GPS Worker Simulator
 To test live worker movement towards a customer without a physical mobile device:
+Set `WORKER_TOKEN` in your terminal to a development worker's login token. The worker ID must belong to that token; unauthenticated simulations are rejected.
 ```bash
 cd server
 npm run simulate:worker <workerId> <startLat> <startLng> <destLat> <destLng>
@@ -138,4 +164,22 @@ npm run simulate:worker simulated-worker-1 28.6250 77.2180 28.6139 77.2090
 | **Worker** | Mukesh Pal | `9811100003` | Multi-skilled: Electrician + Plumber |
 | **Worker** | Vijay Verma | `9811100005` | Mechanic (TVS Apache) |
 | **Worker** | Imran Khan | `9811100006` | AC Technician (Honda Shine) |
-| **Admin** | QuickKaam Admin | `9999999999` | Marketplace Administrator |
+| **Admin** | ServZest Admin | `9999999999` | Marketplace Administrator |
+
+### Address search and location selection
+Booking now supports debounced address suggestions, selecting a suggestion, map clicks, dragging the pin, selecting the map centre, and browser GPS. Pin selection fills a nearby address when available; customers add house/flat details and confirm the location. Search failures leave manual map/address selection available.
+
+The Next.js `/api/locations` route uses Photon with an 8-second timeout and a bounded five-minute cache. Optional server-only `PHOTON_URL` in `client/.env.local` selects a dedicated Photon instance. The default public demo is suitable for reasonable development usage, has no availability guarantee, and should be replaced with a dedicated service before significant production traffic: https://github.com/komoot/photon . Address search text and reverse-lookup coordinates are sent to this provider; house/flat details entered separately are not sent by the picker. GPS requires browser permission and HTTPS (localhost is supported).
+
+### Road route tracking
+Accepted bookings now show an OSRM road polyline, road distance (m/km), estimated driving minutes and latest GPS time between the assigned professional and the booked service pin. The authenticated booking API refreshes this from fresh GPS; the existing socket moves the marker. Missing/stale GPS and routing failure have explicit waiting/unavailable states. Completion/cancellation stops the travel display. ETA does not include live traffic.
+
+Set `OSRM_URL` in `server/.env` to a dedicated OSRM-compatible routing endpoint for production; the default is `https://router.project-osrm.org`. The routing provider receives the two coordinates, not account names or phones. Requests have a five-second timeout, concurrent deduplication and a bounded 30-second cache. Provider reference: https://project-osrm.org/docs/v5.24.0/api/ . A production routing service and real-device field testing remain necessary.
+
+### Mobile preview on the same Wi-Fi
+Run `Start-ServZest.cmd` or root `npm run dev`; website listens on port 3001 and the launcher prints LAN URLs. API/auth/socket requests now use the website origin, forwarded internally to `BACKEND_URL` (default http://127.0.0.1:4000). Socket.IO uses polling through the proxy. `NEXT_PUBLIC_API_URL` is no longer used. Only the website port needs LAN access; no backend firewall opening is required.
+
+Both devices must be on a network that permits device-to-device traffic. Campus/guest Wi-Fi may isolate clients. Windows firewall access requires an explicitly approved rule for the intended network scope. Phone GPS requires a trusted HTTPS origin; plain LAN HTTP supports manual address selection but not full live GPS testing. Do not expose development mock login publicly to obtain HTTPS; use a secured deployment with real authentication or a trusted private HTTPS setup.
+
+### Sequential backend checks
+With the development API running, use `npm --prefix server run verify:backend`. It checks one module at a time and stops on the first failed stage; it writes the stage results to `server/backend-verification.json`. Integration stages create and delete their own development fixtures. Never point these tests at a live business database.

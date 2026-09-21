@@ -1,0 +1,12 @@
+{
+  "name": "servzest",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "npm --prefix server run build && npm --prefix client run build",
+    "test": "npm --prefix server test -- --runInBand",
+    "audit": "npm --prefix server audit --audit-level=high && npm --prefix client audit --audit-level=high",
+    "verify": "npm run test && npm run build && npm run audit"
+  }
+}

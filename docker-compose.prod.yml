@@ -1,0 +1,23 @@
+services:
+  api:
+    build: ./server
+    restart: unless-stopped
+    env_file: .env.production
+    expose: ["4000"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  web:
+    build:
+      context: ./client
+      args:
+        BACKEND_URL: http://api:4000
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://api:4000
+    ports: ["3000:3000"]
+    depends_on:
+      api:
+        condition: service_healthy

@@ -5,6 +5,8 @@ export interface PriceEstimateInput {
   serviceItemsTotal?: number;
   partsTotal?: number;
   bookingTime?: Date;
+  discountAmount?: number;
+  rules?: { nightSurgeRate: number; rushSurgeRate: number; commissionPct: number };
 }
 
 export interface BillBreakdown {
@@ -20,6 +22,8 @@ export interface BillBreakdown {
   totalAmount: number;
   platformFee: number; // commission amount
   workerEarnings: number;
+  discountAmount: number;
+  commissionPct: number;
 }
 
 export interface CancellationFeeResult {
@@ -33,7 +37,7 @@ export class PricingService {
    * Checks if a given time falls in the night window (10 PM to 6 AM)
    */
   isNightHours(date: Date = new Date()): boolean {
-    const hours = date.getHours();
+    const hours = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', hourCycle: 'h23' }).format(date));
     return hours >= 22 || hours < 6;
   }
 
@@ -41,37 +45,39 @@ export class PricingService {
    * Calculates the pricing breakdown including visit, services, parts, night surcharge, rush surge, and platform commission.
    */
   async calculateBill(input: PriceEstimateInput): Promise<BillBreakdown> {
-    const nightChargePct = await settingsService.getSetting<number>('night_charge_pct', 25);
-    const rushMultiplier = await settingsService.getSetting<number>('rush_surge_multiplier', 1.0);
-    const rushCap = await settingsService.getSetting<number>('rush_surge_cap', 1.5);
-    const commissionPct = await settingsService.getSetting<number>('platform_commission_pct', 15);
+    const nightChargePct = input.rules ? 0 : await settingsService.getSetting<number>('night_charge_pct', 25);
+    const rushMultiplier = input.rules ? 1 : await settingsService.getSetting<number>('rush_surge_multiplier', 1.0);
+    const rushCap = input.rules ? 1 : await settingsService.getSetting<number>('rush_surge_cap', 1.5);
+    const commissionPct = input.rules?.commissionPct ?? await settingsService.getSetting<number>('platform_commission_pct', 15);
 
-    const baseVisit = input.baseVisitCharge;
-    const serviceTotal = input.serviceItemsTotal || 0;
-    const partsTotal = input.partsTotal || 0;
+    const money = (amount: number) => Math.round((amount + Number.EPSILON) * 100) / 100;
+    const baseVisit = money(input.baseVisitCharge);
+    const serviceTotal = money(input.serviceItemsTotal || 0);
+    const partsTotal = money(input.partsTotal || 0);
 
     const bookingTime = input.bookingTime || new Date();
     const isNight = this.isNightHours(bookingTime);
 
     // Night surcharge applies to base visit + services (parts are at cost)
-    const nightSurgeRate = isNight ? nightChargePct / 100 : 0;
+    const nightSurgeRate = input.rules?.nightSurgeRate ?? (isNight ? nightChargePct / 100 : 0);
     const nightSurgeAmount = Math.round((baseVisit + serviceTotal) * nightSurgeRate);
 
     // Rush surge is capped at rushCap
-    const effectiveRushMultiplier = Math.min(Math.max(rushMultiplier, 1.0), rushCap);
+    const effectiveRushMultiplier = input.rules?.rushSurgeRate ?? Math.min(Math.max(rushMultiplier, 1.0), rushCap);
     const rushSurgeRate = effectiveRushMultiplier;
     const rushSurgeAmount = Math.round((baseVisit + serviceTotal) * (effectiveRushMultiplier - 1.0));
 
     // Subtotal before surcharges
-    const subtotal = baseVisit + serviceTotal + partsTotal;
+    const subtotal = money(baseVisit + serviceTotal + partsTotal);
 
     // Total bill charged to customer
-    const totalAmount = baseVisit + serviceTotal + partsTotal + nightSurgeAmount + rushSurgeAmount;
+    const discountAmount = money(Math.min(Math.max(0, input.discountAmount || 0), baseVisit + serviceTotal + nightSurgeAmount + rushSurgeAmount));
+    const totalAmount = money(baseVisit + serviceTotal + partsTotal + nightSurgeAmount + rushSurgeAmount - discountAmount);
 
     // Platform commission is calculated on labor (visit + services + surcharges, excluding parts)
-    const laborTotal = baseVisit + serviceTotal + nightSurgeAmount + rushSurgeAmount;
-    const platformFee = Math.round(laborTotal * (commissionPct / 100));
-    const workerEarnings = totalAmount - platformFee;
+    const laborTotal = baseVisit + serviceTotal + nightSurgeAmount + rushSurgeAmount - discountAmount;
+    const platformFee = money(Math.min(laborTotal, Math.round(laborTotal * (commissionPct / 100))));
+    const workerEarnings = money(totalAmount - platformFee);
 
     return {
       baseVisitCharge: baseVisit,
@@ -86,6 +92,8 @@ export class PricingService {
       totalAmount,
       platformFee,
       workerEarnings,
+      discountAmount,
+      commissionPct,
     };
   }
 

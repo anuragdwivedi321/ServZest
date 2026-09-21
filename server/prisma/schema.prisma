@@ -22,6 +22,8 @@ enum KycStatus {
 }
 
 enum BookingStatus {
+  SCHEDULED
+  NO_PROVIDER
   SEARCHING
   ASSIGNED
   EN_ROUTE
@@ -48,6 +50,26 @@ enum ApprovalStatus {
   REJECTED
 }
 
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum LedgerEntryType {
+  COMMISSION_DUE
+  COMMISSION_SETTLED
+  SUBSCRIPTION_FEE
+  REFUND
+  ADJUSTMENT
+}
+
+enum LedgerStatus {
+  DUE
+  SETTLED
+  REVERSED
+}
+
 model User {
   id            String         @id @default(uuid())
   phone         String         @unique
@@ -59,8 +81,26 @@ model User {
   bookings      Booking[]      @relation("CustomerBookings")
   ratingsGiven  Rating[]       @relation("CustomerRatings")
   complaints    Complaint[]
+  sessions      Session[]
+  consentedAt   DateTime?      @map("consented_at")
+  consentVersion String?       @map("consent_version")
+  deletedAt     DateTime?      @map("deleted_at")
 
   @@map("users")
+}
+
+model Session {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  ipAddress String?   @map("ip_address")
+  userAgent String?   @map("user_agent")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([userId, expiresAt])
+  @@map("sessions")
 }
 
 model WorkerProfile {
@@ -71,6 +111,13 @@ model WorkerProfile {
   photoUrl         String?                                 @map("photo_url")
   aadhaarNumber    String?                                 @map("aadhaar_number")
   aadhaarDocUrl    String?                                 @map("aadhaar_doc_url")
+  identityLast4    String?                                 @map("identity_last4")
+  identityMethod   String?                                 @map("identity_method")
+  kycConsentAt     DateTime?                               @map("kyc_consent_at")
+  kycSubmittedAt   DateTime?                               @map("kyc_submitted_at")
+  kycReviewedAt    DateTime?                               @map("kyc_reviewed_at")
+  kycReviewedBy    String?                                 @map("kyc_reviewed_by")
+  kycRejectionReason String?                               @map("kyc_rejection_reason")
   kycStatus        KycStatus                               @default(PENDING) @map("kyc_status")
   isOnline         Boolean                                 @default(false) @map("is_online")
   isBusy           Boolean                                 @default(false) @map("is_busy")
@@ -78,13 +125,63 @@ model WorkerProfile {
   rating           Float                                   @default(5.0)
   totalRatings     Int                                     @default(0) @map("total_ratings")
   vehicleType      String?                                 @map("vehicle_type")
+  upiId            String?                                 @map("upi_id")
+  upiName          String?                                 @map("upi_name")
+  lastLocationAt   DateTime?                               @map("last_location_at")
   services         WorkerService[]
   assignedBookings Booking[]                               @relation("WorkerBookings")
   ratingsReceived  Rating[]                                @relation("WorkerRatings")
+  subscriptions    WorkerSubscription[]
   createdAt        DateTime                                @default(now()) @map("created_at")
   updatedAt        DateTime                                @updatedAt @map("updated_at")
 
   @@map("worker_profiles")
+}
+
+model SubscriptionPlan {
+  id           String   @id @default(uuid())
+  name         String
+  price        Float
+  durationDays Int      @map("duration_days")
+  isActive     Boolean  @default(true) @map("is_active")
+  subscriptions WorkerSubscription[]
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("subscription_plans")
+}
+
+model WorkerSubscription {
+  id         String             @id @default(uuid())
+  workerId   String             @map("worker_id")
+  worker     WorkerProfile      @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  planId     String             @map("plan_id")
+  plan       SubscriptionPlan   @relation(fields: [planId], references: [id])
+  status     SubscriptionStatus @default(ACTIVE)
+  startsAt   DateTime           @map("starts_at")
+  endsAt     DateTime           @map("ends_at")
+  paymentRef String?            @map("payment_ref")
+  createdAt  DateTime           @default(now()) @map("created_at")
+
+  @@index([workerId, status, endsAt])
+  @@map("worker_subscriptions")
+}
+
+model LedgerEntry {
+  id        String          @id @default(uuid())
+  workerId  String          @map("worker_id")
+  bookingId String?         @map("booking_id")
+  paymentId String?         @map("payment_id")
+  type      LedgerEntryType
+  amount    Float
+  status    LedgerStatus    @default(DUE)
+  reference String?
+  createdAt DateTime        @default(now()) @map("created_at")
+  settledAt DateTime?       @map("settled_at")
+
+  @@unique([bookingId, type])
+  @@index([workerId, status, createdAt])
+  @@map("ledger_entries")
 }
 
 model WorkerService {
@@ -137,6 +234,12 @@ model Booking {
   serviceId       String         @map("service_id")
   service         Service        @relation(fields: [serviceId], references: [id])
   status          BookingStatus  @default(SEARCHING)
+  scheduledAt     DateTime?      @map("scheduled_at")
+  problemDescription String?     @map("problem_description")
+  couponCode      String?        @map("coupon_code")
+  discountAmount  Float          @default(0) @map("discount_amount")
+  pricingSnapshot Json?          @map("pricing_snapshot")
+  requestKey      String?        @unique @map("request_key")
   
   // Location
   pickupLat       Float          @map("pickup_lat")
@@ -173,6 +276,7 @@ model Booking {
   updatedAt       DateTime       @updatedAt @map("updated_at")
 
   @@map("bookings")
+  @@index([status, scheduledAt])
 }
 
 model BookingItem {
@@ -198,7 +302,12 @@ model Payment {
   method         PaymentMethod @default(CASH)
   amount         Float
   status         PaymentStatus @default(PENDING)
-  transactionRef String?       @map("transaction_ref")
+  transactionRef String?       @unique @map("transaction_ref")
+  payeeUpiId     String?       @map("payee_upi_id")
+  payeeName      String?       @map("payee_name")
+  reportedAt     DateTime?     @map("reported_at")
+  confirmedAt    DateTime?     @map("confirmed_at")
+  confirmedBy    String?       @map("confirmed_by")
   createdAt      DateTime      @default(now()) @map("created_at")
 
   @@map("payments")
@@ -239,4 +348,32 @@ model AdminSetting {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("admin_settings")
+}
+
+model SupportTicket {
+  id         String   @id @default(uuid())
+  name       String
+  phone      String
+  category   String
+  message    String
+  status     String   @default("OPEN")
+  resolution String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  @@map("support_tickets")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?  @map("actor_id")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id")
+  metadata   Json?
+  ipAddress  String?  @map("ip_address")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+  @@map("audit_logs")
 }

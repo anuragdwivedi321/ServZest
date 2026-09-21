@@ -1,3 +1,5 @@
+import { withoutOtp } from '../../services/booking-lock.service';
+import { bookingPricingInput } from '../../services/checkout.service';
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../db/prisma';
@@ -5,13 +7,16 @@ import { dispatchService } from '../../services/dispatch.service';
 import { pricingService } from '../../services/pricing.service';
 import { getSocketServer } from '../../sockets/socket.server';
 import { BookingStatus, KycStatus, ApprovalStatus } from '@prisma/client';
+import { safeWorkerProfile } from '../../services/worker-profile.service';
+import { writeAudit } from '../../services/audit.service';
 
 export const kycSchema = z.object({
-  aadhaarNumber: z.string().min(12).max(14),
+  identityLast4: z.string().regex(/^\d{4}$/, 'Enter the last 4 digits'),
+  consentAccepted: z.literal(true),
   photoUrl: z.string().url().optional(),
   vehicleType: z.string().optional(),
   skills: z.array(z.string()),
-  serviceIds: z.array(z.string().uuid()),
+  serviceIds: z.array(z.string().uuid()).min(1).max(20),
 });
 
 export const toggleOnlineSchema = z.object({
@@ -28,9 +33,9 @@ export const startBookingSchema = z.object({
 
 export const addItemSchema = z.object({
   serviceItemId: z.string().uuid().optional(),
-  description: z.string().min(2),
-  quantity: z.number().min(1).default(1),
-  unitPrice: z.number().min(0),
+  description: z.string().trim().min(2).max(250),
+  quantity: z.number().int().min(1).max(100).default(1),
+  unitPrice: z.number().min(0).max(100000),
   isPart: z.boolean().default(false),
 });
 
@@ -62,43 +67,34 @@ export const getWorkerProfile = async (req: Request, res: Response) => {
     },
   });
 
-  return res.status(200).json({ success: true, profile, activeBooking });
+  const offer = dispatchService.getOffer(profile.id);
+  const offeredBooking = offer ? await prisma.booking.findUnique({ where: { id: offer.bookingId }, include: { service: true } }) : null;
+  const incomingRequest = offeredBooking?.status === 'SEARCHING' ? { ...offer, serviceName: offeredBooking.service.nameEn, pickupAddress: offeredBooking.pickupAddress, baseVisitCharge: offeredBooking.baseVisitCharge } : null;
+  return res.status(200).json({ success: true, profile: safeWorkerProfile(profile), activeBooking: withoutOtp(activeBooking), incomingRequest });
 };
 
 export const submitKyc = async (req: Request, res: Response) => {
   const userId = req.user!.id;
-  const { aadhaarNumber, photoUrl, vehicleType, skills, serviceIds } = req.body;
+  const { identityLast4, photoUrl, vehicleType, skills, serviceIds } = req.body;
 
-  let profile = await prisma.workerProfile.findUnique({ where: { userId } });
-  if (!profile) {
-    profile = await prisma.workerProfile.create({
-      data: { userId, skills: [] },
+  const updatedProfile = await prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT id FROM worker_profiles WHERE user_id = ${userId} FOR UPDATE`;
+    const profile = await tx.workerProfile.findUnique({ where: { userId } });
+    if (profile?.isBusy) throw Object.assign(new Error('Finish your active job before changing KYC.'), { status: 409 });
+    const ids = [...new Set(serviceIds)] as string[];
+    if (await tx.service.count({ where: { id: { in: ids } } }) !== ids.length) throw Object.assign(new Error('Invalid service selection.'), { status: 400 });
+    return tx.workerProfile.upsert({ where: { userId },
+      create: { userId, identityLast4, identityMethod: 'SELF_DECLARED_LAST4', kycConsentAt: new Date(), kycSubmittedAt: new Date(), photoUrl, vehicleType, skills, services: { create: ids.map(serviceId => ({ serviceId })) } },
+      update: { identityLast4, identityMethod: 'SELF_DECLARED_LAST4', kycConsentAt: new Date(), kycSubmittedAt: new Date(), kycReviewedAt: null, kycReviewedBy: null, kycRejectionReason: null, aadhaarNumber: null, aadhaarDocUrl: null, photoUrl, vehicleType, skills, kycStatus: 'PENDING', isOnline: false, services: { deleteMany: {}, create: ids.map(serviceId => ({ serviceId })) } },
     });
-  }
-
-  const updatedProfile = await prisma.workerProfile.update({
-    where: { id: profile.id },
-    data: {
-      aadhaarNumber,
-      photoUrl,
-      vehicleType,
-      skills,
-      kycStatus: KycStatus.PENDING, // Awaiting admin approval
-    },
   });
 
-  // Link services
-  await prisma.workerService.deleteMany({ where: { workerId: profile.id } });
-  for (const serviceId of serviceIds) {
-    await prisma.workerService.create({
-      data: { workerId: profile.id, serviceId },
-    });
-  }
+  await writeAudit({ actorId: userId, action: 'KYC_SUBMITTED', entityType: 'WorkerProfile', entityId: updatedProfile.id, ipAddress: req.ip });
 
   return res.status(200).json({
     success: true,
     message: 'KYC submitted successfully. Awaiting admin review.',
-    profile: updatedProfile,
+    profile: safeWorkerProfile(updatedProfile),
   });
 };
 
@@ -117,13 +113,18 @@ export const toggleOnline = async (req: Request, res: Response) => {
       message: 'KYC must be approved by admin before going online.',
     });
   }
+  if (isOnline && (await (await import('../../services/settings.service')).settingsService.getSetting<number>('subscription_required', 0)) === 1) {
+    const activeSubscription = await prisma.workerSubscription.count({ where: { workerId: profile.id, status: 'ACTIVE', endsAt: { gt: new Date() } } });
+    if (!activeSubscription) return res.status(402).json({ success: false, message: 'An active professional subscription is required to receive jobs.' });
+  }
 
-  const updated = await prisma.workerProfile.update({
-    where: { id: profile.id },
+  const updated = await prisma.workerProfile.updateMany({
+    where: { id: profile.id, ...(isOnline ? { kycStatus: KycStatus.APPROVED } : {}) },
     data: { isOnline },
   });
-
-  return res.status(200).json({ success: true, isOnline: updated.isOnline });
+  if (!updated.count) return res.status(409).json({ success: false, message: 'Approval changed. Refresh your profile.' });
+  if (!isOnline && !profile.isBusy) await prisma.$executeRaw`UPDATE worker_profiles SET current_location = NULL, last_location_at = NULL WHERE id = ${profile.id} AND is_busy = false`;
+  return res.status(200).json({ success: true, isOnline });
 };
 
 export const acceptBooking = async (req: Request, res: Response) => {
@@ -148,20 +149,7 @@ export const acceptBooking = async (req: Request, res: Response) => {
     },
   });
 
-  const io = getSocketServer();
-  if (io) {
-    io.to(`booking_${id}`).emit('booking:status_update', {
-      bookingId: id,
-      status: BookingStatus.ASSIGNED,
-      worker: {
-        id: profile.id,
-        name: req.user!.phone,
-        rating: profile.rating,
-      },
-    });
-  }
-
-  return res.status(200).json({ success: true, message: 'Booking accepted', booking });
+  return res.status(200).json({ success: true, message: 'Booking accepted', booking: withoutOtp(booking) });
 };
 
 export const rejectBooking = async (req: Request, res: Response) => {
@@ -177,207 +165,7 @@ export const rejectBooking = async (req: Request, res: Response) => {
   return res.status(200).json({ success: true, message: 'Booking rejected, advancing to next candidate' });
 };
 
-export const updateBookingStatus = async (req: Request, res: Response) => {
-  const userId = req.user!.id;
-  const { id } = req.params;
-  const { status } = req.body;
-
-  const profile = await prisma.workerProfile.findUnique({ where: { userId } });
-  if (!profile) {
-    return res.status(404).json({ success: false, message: 'Worker profile not found' });
-  }
-
-  const booking = await prisma.booking.findUnique({ where: { id } });
-  if (!booking || booking.workerId !== profile.id) {
-    return res.status(404).json({ success: false, message: 'Booking not assigned to this worker' });
-  }
-
-  // Validate state machine transitions:
-  // ASSIGNED -> EN_ROUTE
-  // EN_ROUTE -> ARRIVED
-  if (status === 'EN_ROUTE' && booking.status !== BookingStatus.ASSIGNED) {
-    return res.status(400).json({ success: false, message: 'Invalid transition to EN_ROUTE' });
-  }
-  if (status === 'ARRIVED' && booking.status !== BookingStatus.EN_ROUTE) {
-    return res.status(400).json({ success: false, message: 'Invalid transition to ARRIVED' });
-  }
-
-  const updatedBooking = await prisma.booking.update({
-    where: { id },
-    data: {
-      status: status === 'EN_ROUTE' ? BookingStatus.EN_ROUTE : BookingStatus.ARRIVED,
-      ...(status === 'ARRIVED' ? { arrivedAt: new Date() } : {}),
-    },
-  });
-
-  const io = getSocketServer();
-  if (io) {
-    io.to(`booking_${id}`).emit('booking:status_update', {
-      bookingId: id,
-      status: updatedBooking.status,
-    });
-  }
-
-  return res.status(200).json({ success: true, booking: updatedBooking });
-};
-
-export const startBooking = async (req: Request, res: Response) => {
-  const userId = req.user!.id;
-  const { id } = req.params;
-  const { otp } = req.body;
-
-  const profile = await prisma.workerProfile.findUnique({ where: { userId } });
-  if (!profile) {
-    return res.status(404).json({ success: false, message: 'Worker profile not found' });
-  }
-
-  const booking = await prisma.booking.findUnique({ where: { id } });
-  if (!booking || booking.workerId !== profile.id) {
-    return res.status(404).json({ success: false, message: 'Booking not assigned to this worker' });
-  }
-
-  if (booking.status !== BookingStatus.ARRIVED) {
-    return res.status(400).json({ success: false, message: 'Worker must arrive before starting job' });
-  }
-
-  if (booking.startOtp !== otp) {
-    return res.status(400).json({ success: false, message: 'Invalid 4-digit start OTP' });
-  }
-
-  const updatedBooking = await prisma.booking.update({
-    where: { id },
-    data: {
-      status: BookingStatus.IN_PROGRESS,
-      startedAt: new Date(),
-    },
-  });
-
-  const io = getSocketServer();
-  if (io) {
-    io.to(`booking_${id}`).emit('booking:status_update', {
-      bookingId: id,
-      status: BookingStatus.IN_PROGRESS,
-    });
-  }
-
-  return res.status(200).json({ success: true, message: 'Job started successfully', booking: updatedBooking });
-};
-
-export const addItemToBill = async (req: Request, res: Response) => {
-  const userId = req.user!.id;
-  const { id } = req.params;
-  const { serviceItemId, description, quantity, unitPrice, isPart } = req.body;
-
-  const profile = await prisma.workerProfile.findUnique({ where: { userId } });
-  if (!profile) {
-    return res.status(404).json({ success: false, message: 'Worker profile not found' });
-  }
-
-  const booking = await prisma.booking.findUnique({ where: { id } });
-  if (!booking || booking.workerId !== profile.id) {
-    return res.status(404).json({ success: false, message: 'Booking not assigned to this worker' });
-  }
-
-  if (booking.status !== BookingStatus.IN_PROGRESS) {
-    return res.status(400).json({ success: false, message: 'Extra items can only be added while job is IN_PROGRESS' });
-  }
-
-  const item = await prisma.bookingItem.create({
-    data: {
-      bookingId: id,
-      serviceItemId,
-      description,
-      quantity,
-      unitPrice,
-      isPart,
-      approvalStatus: ApprovalStatus.PENDING,
-    },
-  });
-
-  const io = getSocketServer();
-  if (io) {
-    io.to(`booking_${id}`).emit('booking:extra_item_added', {
-      bookingId: id,
-      item,
-    });
-  }
-
-  return res.status(201).json({
-    success: true,
-    message: 'Item added and sent to customer for approval',
-    item,
-  });
-};
-
-export const completeBooking = async (req: Request, res: Response) => {
-  const userId = req.user!.id;
-  const { id } = req.params;
-
-  const profile = await prisma.workerProfile.findUnique({ where: { userId } });
-  if (!profile) {
-    return res.status(404).json({ success: false, message: 'Worker profile not found' });
-  }
-
-  const booking = await prisma.booking.findUnique({
-    where: { id },
-    include: { items: true },
-  });
-
-  if (!booking || booking.workerId !== profile.id) {
-    return res.status(404).json({ success: false, message: 'Booking not assigned to this worker' });
-  }
-
-  if (booking.status !== BookingStatus.IN_PROGRESS) {
-    return res.status(400).json({ success: false, message: 'Only IN_PROGRESS bookings can be marked COMPLETED' });
-  }
-
-  // Calculate final bill
-  const approvedItems = booking.items.filter((i) => i.approvalStatus === ApprovalStatus.APPROVED);
-  const serviceTotal = approvedItems
-    .filter((i) => !i.isPart)
-    .reduce((acc, curr) => acc + curr.unitPrice * curr.quantity, 0);
-  const partsTotal = approvedItems
-    .filter((i) => i.isPart)
-    .reduce((acc, curr) => acc + curr.unitPrice * curr.quantity, 0);
-
-  const bill = await pricingService.calculateBill({
-    baseVisitCharge: booking.baseVisitCharge,
-    serviceItemsTotal: serviceTotal,
-    partsTotal: partsTotal,
-    bookingTime: booking.createdAt,
-  });
-
-  const updatedBooking = await prisma.booking.update({
-    where: { id },
-    data: {
-      status: BookingStatus.COMPLETED,
-      completedAt: new Date(),
-      serviceTotal: bill.serviceTotal,
-      partsTotal: bill.partsTotal,
-      nightSurgeRate: bill.nightSurgeRate,
-      rushSurgeRate: bill.rushSurgeRate,
-      platformFee: bill.platformFee,
-      totalAmount: bill.totalAmount,
-    },
-  });
-
-  // Free worker
-  await prisma.workerProfile.update({
-    where: { id: profile.id },
-    data: { isBusy: false },
-  });
-
-  const io = getSocketServer();
-  if (io) {
-    io.to(`booking_${id}`).emit('booking:status_update', {
-      bookingId: id,
-      status: BookingStatus.COMPLETED,
-      bill,
-    });
-  }
-
-  return res.status(200).json({ success: true, message: 'Job completed', booking: updatedBooking, bill });
-};
+export { updateBookingStatus, startBooking, addItemToBill, completeBooking } from './lifecycle.controller';
 
 export const getEarnings = async (req: Request, res: Response) => {
   const userId = req.user!.id;
@@ -391,11 +179,14 @@ export const getEarnings = async (req: Request, res: Response) => {
       workerId: profile.id,
       status: BookingStatus.COMPLETED,
     },
+    include: { payment: true, service: true, customer: { select: { name: true } } },
     orderBy: { completedAt: 'desc' },
   });
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Earnings days are India calendar days, independent of the server timezone.
+  const indiaOffset = 330 * 60 * 1000;
+  const indiaNow = new Date(Date.now() + indiaOffset);
+  const today = new Date(Date.UTC(indiaNow.getUTCFullYear(), indiaNow.getUTCMonth(), indiaNow.getUTCDate()) - indiaOffset);
 
   const oneWeekAgo = new Date();
   oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
@@ -406,6 +197,7 @@ export const getEarnings = async (req: Request, res: Response) => {
 
   for (const b of completedBookings) {
     const netEarning = b.totalAmount - b.platformFee;
+    if (b.payment?.status !== 'COMPLETED') continue;
     totalEarnings += netEarning;
 
     if (b.completedAt && b.completedAt >= today) {
@@ -422,6 +214,8 @@ export const getEarnings = async (req: Request, res: Response) => {
     weekEarnings,
     totalEarnings,
     completedJobsCount: completedBookings.length,
-    recentJobs: completedBookings.slice(0, 10),
+    recentJobs: completedBookings.slice(0, 10).map(b => withoutOtp(b)),
+    pendingReceipts: completedBookings.filter(b => b.payment?.status !== 'COMPLETED').map(b => withoutOtp(b)),
+    pendingAmount: completedBookings.filter(b => b.payment?.status !== 'COMPLETED').reduce((sum,b) => sum+b.totalAmount,0),
   });
 };
