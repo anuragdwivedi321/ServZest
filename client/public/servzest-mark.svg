@@ -1,1 +1,32 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="18" fill="#384a32"/><path d="M15 30 32 16 49 30" fill="none" stroke="#f7f2e5" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 30v17h24V30" fill="none" stroke="#f7f2e5" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="m26 36 5 5 9-10" fill="none" stroke="#c9d5a8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <!-- Yellow rounded rect background -->
+  <rect width="200" height="200" rx="46" fill="#F5BC1A"/>
+
+  <!-- S letterform (left side) -->
+  <path d="M 30 68
+             C 30 52 44 42 62 42
+             L 100 42
+             C 110 42 118 48 118 60
+             C 118 72 110 78 100 78
+             L 62 78
+             C 56 78 52 82 52 88
+             C 52 94 56 98 62 98
+             L 100 98
+             C 116 98 128 108 128 122
+             C 128 136 116 146 100 146
+             L 60 146
+             C 44 146 30 136 30 120"
+        fill="none" stroke="#0a5e4d" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Z diagonal line -->
+  <line x1="112" y1="48" x2="172" y2="140" stroke="#0a5e4d" stroke-width="18" stroke-linecap="round"/>
+
+  <!-- Z top horizontal bar -->
+  <line x1="108" y1="48" x2="168" y2="48" stroke="#0a5e4d" stroke-width="16" stroke-linecap="round"/>
+
+  <!-- Z bottom horizontal bar -->
+  <line x1="112" y1="140" x2="172" y2="140" stroke="#0a5e4d" stroke-width="16" stroke-linecap="round"/>
+
+  <!-- Orange accent dot -->
+  <circle cx="172" cy="44" r="14" fill="#f97316"/>
+</svg>
